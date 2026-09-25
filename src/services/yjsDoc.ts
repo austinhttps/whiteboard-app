@@ -33,6 +33,7 @@ class WhiteboardService {
   private indexeddbProvider: IndexeddbPersistence | null = null;
   private webrtcProvider: WebrtcProvider | null = null;
   private elementsMap: Y.Map<CanvasElement> | null = null;
+  private metaMap: Y.Map<any> | null = null;
   private undoManager: Y.UndoManager | null = null;
   private currentBoardId: string = '';
   private isLoaded: boolean = false;
@@ -102,8 +103,9 @@ class WhiteboardService {
     // 1. Create Yjs Document
     this.doc = new Y.Doc();
 
-    // 2. Obtain shared map for canvas elements
+    // 2. Obtain shared map for canvas elements & metadata
     this.elementsMap = this.doc.getMap<CanvasElement>('canvas-elements');
+    this.metaMap = this.doc.getMap('board-metadata');
 
     // 3. Connect local persistence with IndexedDB
     const dbName = `whiteboard-board-${boardId}`;
@@ -151,6 +153,24 @@ class WhiteboardService {
     this.elementsMap.observe(() => {
       this.notifyChangeListeners();
     });
+  }
+
+  /**
+   * Check if this board was already initialized
+   */
+  public isBoardInitialized(): boolean {
+    if (!this.metaMap) return false;
+    return Boolean(this.metaMap.get('initialized'));
+  }
+
+  /**
+   * Mark board as initialized so demo objects won't be re-added on clear
+   */
+  public setBoardInitialized(initialized: boolean = true): void {
+    if (!this.doc || !this.metaMap) return;
+    this.doc.transact(() => {
+      this.metaMap!.set('initialized', initialized);
+    }, 'local');
   }
 
   /**
@@ -225,6 +245,7 @@ class WhiteboardService {
       this.doc = null;
     }
     this.elementsMap = null;
+    this.metaMap = null;
     this.isLoaded = false;
     this.isConnected = false;
   }
@@ -254,6 +275,7 @@ class WhiteboardService {
         ...element,
         updatedAt: Date.now(),
       });
+      this.metaMap?.set('initialized', true);
     }, origin);
   }
 
@@ -270,6 +292,7 @@ class WhiteboardService {
           updatedAt: Date.now(),
         });
       });
+      this.metaMap?.set('initialized', true);
     }, origin);
   }
 
@@ -281,6 +304,7 @@ class WhiteboardService {
 
     this.doc.transact(() => {
       this.elementsMap!.delete(id);
+      this.metaMap?.set('initialized', true);
     }, origin);
   }
 
@@ -292,11 +316,12 @@ class WhiteboardService {
 
     this.doc.transact(() => {
       ids.forEach((id) => this.elementsMap!.delete(id));
+      this.metaMap?.set('initialized', true);
     }, origin);
   }
 
   /**
-   * Clear all elements from board.
+   * Clear all elements from board without resetting metadata.
    */
   public clearAll(origin: string = 'local'): void {
     if (!this.doc || !this.elementsMap) return;
@@ -304,6 +329,8 @@ class WhiteboardService {
     this.doc.transact(() => {
       const keys = Array.from(this.elementsMap!.keys());
       keys.forEach((key) => this.elementsMap!.delete(key));
+      // Mark initialized = true so demo objects won't re-appear on clear
+      this.metaMap?.set('initialized', true);
     }, origin);
   }
 

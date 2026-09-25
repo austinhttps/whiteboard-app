@@ -34,6 +34,8 @@ export function App() {
     redo,
     updateCursor,
     updateUserName,
+    isBoardInitialized,
+    setBoardInitialized,
     getNextZIndex,
   } = useWhiteboard();
 
@@ -54,9 +56,9 @@ export function App() {
   const stageRef = useRef<Konva.Stage | null>(null);
   const hiddenFileInputRef = useRef<HTMLInputElement>(null);
 
-  // Setup initial welcome content if empty board
+  // Setup initial welcome content ONLY on brand new uninitialized boards
   useEffect(() => {
-    if (isLoaded && elements.length === 0) {
+    if (isLoaded && !isBoardInitialized() && elements.length === 0) {
       const initialElements: CanvasElement[] = [
         {
           id: 'welcome-sticky',
@@ -103,8 +105,9 @@ export function App() {
         },
       ];
       setBatchElements(initialElements);
+      setBoardInitialized(true);
     }
-  }, [isLoaded, elements.length, setBatchElements]);
+  }, [isLoaded, elements.length, isBoardInitialized, setBoardInitialized, setBatchElements]);
 
   // Selected elements list
   const selectedElements = elements.filter((el) => selectedIds.includes(el.id));

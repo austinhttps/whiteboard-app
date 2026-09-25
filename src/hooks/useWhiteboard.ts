@@ -131,6 +131,8 @@ export function useWhiteboard() {
     redo,
     updateCursor,
     updateUserName,
+    isBoardInitialized: () => whiteboardService.isBoardInitialized(),
+    setBoardInitialized: (val?: boolean) => whiteboardService.setBoardInitialized(val),
     getNextZIndex: () => whiteboardService.getNextZIndex(),
   };
 }
