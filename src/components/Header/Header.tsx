@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Undo2,
   Redo2,
@@ -14,6 +14,8 @@ import {
   Layers,
   User,
   Radio,
+  Pencil,
+  Copy,
 } from 'lucide-react';
 import Konva from 'konva';
 import { GridType, CanvasElement, Collaborator } from '../../types/whiteboard';
@@ -21,6 +23,8 @@ import { exportStageToPNG, exportBoardToJson, importBoardFromJson } from '../../
 
 interface HeaderProps {
   boardId: string;
+  boardName: string;
+  onUpdateBoardName: (name: string) => void;
   isLoaded: boolean;
   isConnected: boolean;
   collaborators: Collaborator[];
@@ -42,6 +46,8 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({
   boardId,
+  boardName,
+  onUpdateBoardName,
   isLoaded: _isLoaded,
   isConnected,
   collaborators,
@@ -60,26 +66,57 @@ export const Header: React.FC<HeaderProps> = ({
   elements,
   onImportElements,
 }) => {
-  const [copied, setCopied] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedId, setCopiedId] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showUserModal, setShowUserModal] = useState(false);
   const [tempUserName, setTempUserName] = useState(localUser.name);
+
+  // Inline Board Name Editing State
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState(boardName);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setNameInput(boardName);
+  }, [boardName]);
+
+  useEffect(() => {
+    if (isEditingName && nameInputRef.current) {
+      nameInputRef.current.focus();
+      nameInputRef.current.select();
+    }
+  }, [isEditingName]);
+
+  const handleSaveName = () => {
+    const trimmed = nameInput.trim();
+    onUpdateBoardName(trimmed || 'New Whiteboard');
+    setIsEditingName(false);
+  };
 
   const handleCopyLink = () => {
     const url = window.location.href;
     navigator.clipboard.writeText(url);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2500);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2500);
+  };
+
+  const handleCopyId = () => {
+    navigator.clipboard.writeText(boardId);
+    setCopiedId(true);
+    setTimeout(() => setCopiedId(false), 2000);
   };
 
   const handleExportPNG = (pixelRatio: number, scope: 'viewport' | 'all') => {
     if (!stageRef.current) return;
+    const cleanFileName = boardName.toLowerCase().replace(/[^a-z0-9]/gi, '-');
     exportStageToPNG(stageRef.current, {
       pixelRatio,
       scope,
-      fileName: `board-${boardId.slice(0, 8)}-${scope}-${pixelRatio}x.png`,
+      fileName: `${cleanFileName}-${scope}-${pixelRatio}x.png`,
     });
     setShowExportMenu(false);
   };
@@ -106,7 +143,7 @@ export const Header: React.FC<HeaderProps> = ({
   const totalUsersOnline = collaborators.length + 1;
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-30 flex items-center justify-between px-4 py-2.5 bg-slate-900/80 backdrop-blur-md border-b border-slate-800">
+    <header className="fixed top-0 left-0 right-0 z-30 flex items-center justify-between px-4 py-2.5 bg-slate-900/85 backdrop-blur-md border-b border-slate-800">
       {/* Left: Brand & Board Management */}
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-2">
@@ -120,37 +157,80 @@ export const Header: React.FC<HeaderProps> = ({
                 Live CRDT
               </span>
             </h1>
-            <p className="text-[11px] text-slate-400">Real-time Marketing & School Studio</p>
           </div>
         </div>
 
         <div className="w-[1px] h-6 bg-slate-800 mx-1" />
 
-        {/* Board ID & Share Link */}
-        <div className="flex items-center gap-2 bg-slate-800/80 border border-slate-700/60 rounded-xl px-2.5 py-1">
+        {/* Editable Board Name */}
+        <div className="flex items-center">
+          {isEditingName ? (
+            <input
+              ref={nameInputRef}
+              type="text"
+              value={nameInput}
+              onChange={(e) => setNameInput(e.target.value)}
+              onBlur={handleSaveName}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleSaveName();
+                if (e.key === 'Escape') {
+                  setNameInput(boardName);
+                  setIsEditingName(false);
+                }
+              }}
+              className="px-2 py-1 text-xs font-semibold text-white bg-slate-800 border border-indigo-500 rounded-lg outline-none max-w-[200px]"
+              maxLength={40}
+            />
+          ) : (
+            <button
+              onClick={() => setIsEditingName(true)}
+              className="group flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-slate-200 hover:text-white hover:bg-slate-800 rounded-xl transition-all border border-transparent hover:border-slate-700/60 max-w-[220px]"
+              title="Click to rename this whiteboard"
+            >
+              <span className="truncate">{boardName || 'New Whiteboard'}</span>
+              <Pencil className="w-3 h-3 text-slate-500 group-hover:text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+            </button>
+          )}
+        </div>
+
+        {/* Copy Board ID Pill */}
+        <div className="flex items-center gap-1.5 bg-slate-800/80 border border-slate-700/60 rounded-xl px-2.5 py-1">
           <span className="text-xs font-mono text-slate-400">
-            Board: <span className="text-slate-200">{boardId.slice(0, 8)}...</span>
+            ID: <span className="text-slate-200">{boardId.slice(0, 8)}</span>
           </span>
           <button
-            onClick={handleCopyLink}
-            className={`flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-lg transition-all ${
-              copied
-                ? 'bg-emerald-600 text-white'
-                : 'bg-indigo-600/80 hover:bg-indigo-600 text-white shadow-sm'
-            }`}
-            title="Copy board URL to share and collaborate live"
+            onClick={handleCopyId}
+            className="text-slate-400 hover:text-white transition-colors"
+            title="Copy board ID"
           >
-            {copied ? (
-              <>
-                <Check className="w-3.5 h-3.5" /> Link Copied!
-              </>
+            {copiedId ? (
+              <Check className="w-3.5 h-3.5 text-emerald-400" />
             ) : (
-              <>
-                <Share2 className="w-3.5 h-3.5" /> Share Board
-              </>
+              <Copy className="w-3.5 h-3.5" />
             )}
           </button>
         </div>
+
+        {/* Share Link Button */}
+        <button
+          onClick={handleCopyLink}
+          className={`flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-xl transition-all shadow-sm ${
+            copiedLink
+              ? 'bg-emerald-600 text-white'
+              : 'bg-indigo-600/80 hover:bg-indigo-600 text-white'
+          }`}
+          title="Copy board URL to share and collaborate live"
+        >
+          {copiedLink ? (
+            <>
+              <Check className="w-3.5 h-3.5" /> Link Copied!
+            </>
+          ) : (
+            <>
+              <Share2 className="w-3.5 h-3.5" /> Share
+            </>
+          )}
+        </button>
 
         {/* New Board Button */}
         <button

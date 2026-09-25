@@ -42,6 +42,7 @@ class WhiteboardService {
 
   private loadListeners: Set<(isLoaded: boolean) => void> = new Set();
   private changeListeners: Set<(elements: CanvasElement[]) => void> = new Set();
+  private boardNameListeners: Set<(name: string) => void> = new Set();
   private collaboratorListeners: Set<(collaborators: Collaborator[]) => void> = new Set();
   private connectionListeners: Set<(isConnected: boolean) => void> = new Set();
 
@@ -116,6 +117,7 @@ class WhiteboardService {
       this.isLoaded = true;
       this.notifyLoadListeners(true);
       this.notifyChangeListeners();
+      this.notifyBoardNameListeners();
     });
 
     // 4. Connect Real-time WebRTC Peer-to-Peer Provider for Live Collaboration
@@ -153,6 +155,29 @@ class WhiteboardService {
     this.elementsMap.observe(() => {
       this.notifyChangeListeners();
     });
+
+    this.metaMap.observe(() => {
+      this.notifyBoardNameListeners();
+    });
+  }
+
+  /**
+   * Get board title name
+   */
+  public getBoardName(): string {
+    if (!this.metaMap) return 'New Whiteboard';
+    return (this.metaMap.get('boardName') as string) || 'New Whiteboard';
+  }
+
+  /**
+   * Update board title name
+   */
+  public setBoardName(name: string): void {
+    if (!this.doc || !this.metaMap) return;
+    this.doc.transact(() => {
+      this.metaMap!.set('boardName', name || 'New Whiteboard');
+    }, 'local');
+    this.notifyBoardNameListeners();
   }
 
   /**
@@ -210,7 +235,6 @@ class WhiteboardService {
     const localClientId = this.doc?.clientID;
 
     states.forEach((state: any, clientId: number) => {
-      // Exclude self from remote collaborators list
       if (clientId !== localClientId && state.user) {
         collaborators.push({
           clientId,
@@ -329,7 +353,6 @@ class WhiteboardService {
     this.doc.transact(() => {
       const keys = Array.from(this.elementsMap!.keys());
       keys.forEach((key) => this.elementsMap!.delete(key));
-      // Mark initialized = true so demo objects won't re-appear on clear
       this.metaMap?.set('initialized', true);
     }, origin);
   }
@@ -418,9 +441,25 @@ class WhiteboardService {
     };
   }
 
+  /**
+   * Subscribe to board name changes.
+   */
+  public subscribeBoardName(listener: (name: string) => void): () => void {
+    this.boardNameListeners.add(listener);
+    listener(this.getBoardName());
+    return () => {
+      this.boardNameListeners.delete(listener);
+    };
+  }
+
   private notifyChangeListeners(): void {
     const elements = this.getElements();
     this.changeListeners.forEach((listener) => listener(elements));
+  }
+
+  private notifyBoardNameListeners(): void {
+    const name = this.getBoardName();
+    this.boardNameListeners.forEach((listener) => listener(name));
   }
 
   private notifyLoadListeners(isLoaded: boolean): void {

@@ -17,6 +17,8 @@ import { ToolType, ToolProperties, GridType, CanvasElement } from './types/white
 export function App() {
   const {
     boardId,
+    boardName,
+    setBoardName,
     elements,
     isLoaded,
     isConnected,
@@ -366,6 +368,8 @@ export function App() {
       {/* Header */}
       <Header
         boardId={boardId}
+        boardName={boardName}
+        onUpdateBoardName={setBoardName}
         isLoaded={isLoaded}
         isConnected={isConnected}
         collaborators={collaborators}

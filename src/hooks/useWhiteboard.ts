@@ -4,6 +4,7 @@ import { CanvasElement, Collaborator } from '../types/whiteboard';
 
 export function useWhiteboard() {
   const [boardId, setBoardId] = useState<string>(() => whiteboardService.getOrCreateBoardId());
+  const [boardName, setBoardNameState] = useState<string>('New Whiteboard');
   const [elements, setElements] = useState<CanvasElement[]>([]);
   const [isLoaded, setIsLoaded] = useState<boolean>(false);
   const [isConnected, setIsConnected] = useState<boolean>(false);
@@ -26,6 +27,11 @@ export function useWhiteboard() {
       setCollaborators(collabs);
     });
 
+    const unsubscribeBoardName = whiteboardService.subscribeBoardName((name) => {
+      setBoardNameState(name);
+      document.title = `${name} - CollabBoard`;
+    });
+
     const unsubscribeElements = whiteboardService.subscribe((updatedElements) => {
       setElements(updatedElements);
       setCanUndo(whiteboardService.canUndo());
@@ -43,6 +49,7 @@ export function useWhiteboard() {
       unsubscribeLoad();
       unsubscribeConnection();
       unsubscribeCollaborators();
+      unsubscribeBoardName();
       unsubscribeElements();
       window.removeEventListener('popstate', handlePopState);
     };
@@ -57,6 +64,10 @@ export function useWhiteboard() {
   const switchBoard = useCallback((targetId: string) => {
     whiteboardService.updateUrl(targetId);
     setBoardId(targetId);
+  }, []);
+
+  const setBoardName = useCallback((name: string) => {
+    whiteboardService.setBoardName(name);
   }, []);
 
   const setElement = useCallback((element: CanvasElement) => {
@@ -113,6 +124,8 @@ export function useWhiteboard() {
 
   return {
     boardId,
+    boardName,
+    setBoardName,
     elements,
     isLoaded,
     isConnected,
