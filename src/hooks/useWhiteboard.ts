@@ -57,6 +57,7 @@ export function useWhiteboard() {
 
   const createNewBoard = useCallback(() => {
     const newId = crypto.randomUUID();
+    sessionStorage.setItem(`is_creator_${newId}`, 'true');
     whiteboardService.updateUrl(newId);
     setBoardId(newId);
   }, []);
@@ -146,6 +147,7 @@ export function useWhiteboard() {
     updateUserName,
     isBoardInitialized: () => whiteboardService.isBoardInitialized(),
     setBoardInitialized: (val?: boolean) => whiteboardService.setBoardInitialized(val),
+    isBoardCreator: () => whiteboardService.isBoardCreator(boardId),
     getNextZIndex: () => whiteboardService.getNextZIndex(),
   };
 }

@@ -38,6 +38,7 @@ export function App() {
     updateUserName,
     isBoardInitialized,
     setBoardInitialized,
+    isBoardCreator,
     getNextZIndex,
   } = useWhiteboard();
 
@@ -88,7 +89,7 @@ export function App() {
 
   // Setup initial welcome content ONLY on brand new uninitialized boards
   useEffect(() => {
-    if (isLoaded && !isBoardInitialized() && elements.length === 0) {
+    if (isLoaded && !isBoardInitialized() && elements.length === 0 && isBoardCreator()) {
       const initialElements: CanvasElement[] = [
         {
           id: 'welcome-sticky',
@@ -137,7 +138,7 @@ export function App() {
       setBatchElements(initialElements);
       setBoardInitialized(true);
     }
-  }, [isLoaded, elements.length, isBoardInitialized, setBoardInitialized, setBatchElements]);
+  }, [isLoaded, elements.length, isBoardInitialized, setBoardInitialized, setBatchElements, isBoardCreator]);
 
   // Selected elements list
   const selectedElements = elements.filter((el) => selectedIds.includes(el.id));

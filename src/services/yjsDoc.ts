@@ -1,6 +1,6 @@
 import * as Y from 'yjs';
 import { IndexeddbPersistence } from 'y-indexeddb';
-import { WebrtcProvider } from 'y-webrtc';
+import { WebsocketProvider } from 'y-websocket';
 import { CanvasElement, Collaborator } from '../types/whiteboard';
 
 const USER_COLORS = [
@@ -26,12 +26,12 @@ const USER_NAMES = [
 ];
 
 /**
- * Manages the Yjs Document, IndexedDB persistence, WebRTC real-time sync, and peer awareness.
+ * Manages the Yjs Document, IndexedDB persistence, WebSocket real-time sync, and peer awareness.
  */
 class WhiteboardService {
   private doc: Y.Doc | null = null;
   private indexeddbProvider: IndexeddbPersistence | null = null;
-  private webrtcProvider: WebrtcProvider | null = null;
+  private wsProvider: WebsocketProvider | null = null;
   private elementsMap: Y.Map<CanvasElement> | null = null;
   private metaMap: Y.Map<any> | null = null;
   private undoManager: Y.UndoManager | null = null;
@@ -69,10 +69,19 @@ class WhiteboardService {
 
     if (!boardId || boardId.trim() === '') {
       boardId = crypto.randomUUID();
+      // Mark this board as locally created so it can get welcome items if empty
+      sessionStorage.setItem(`is_creator_${boardId}`, 'true');
       this.updateUrl(boardId);
     }
 
     return boardId;
+  }
+
+  /**
+   * Check if the current user created this board in this session
+   */
+  public isBoardCreator(boardId: string): boolean {
+    return sessionStorage.getItem(`is_creator_${boardId}`) === 'true';
   }
 
   /**
@@ -85,7 +94,7 @@ class WhiteboardService {
   }
 
   /**
-   * Initialize or switch to a board document with IndexedDB persistence & WebRTC real-time sync.
+   * Initialize or switch to a board document with IndexedDB persistence & WebSocket real-time sync.
    */
   public initBoard(boardId: string): void {
     if (this.currentBoardId === boardId && this.doc) {
@@ -120,29 +129,40 @@ class WhiteboardService {
       this.notifyBoardNameListeners();
     });
 
-    // 4. Connect Real-time WebRTC Peer-to-Peer Provider for Live Collaboration
-    const roomName = `collab-board-room-${boardId}`;
-    this.webrtcProvider = new WebrtcProvider(roomName, this.doc, {
-      signaling: [
-        'wss://signaling.yjs.dev',
-        'wss://y-webrtc-signaling-eu.herokuapp.com',
-        'wss://y-webrtc-signaling-us.herokuapp.com',
-      ],
-    });
+    // 4. Connect Real-time WebSocket Provider for instant live multi-user collaboration
+    const roomName = `collab-board-v3-${boardId}`;
+    
+    // Connect to reliable public WebSocket sync relay
+    this.wsProvider = new WebsocketProvider(
+      'wss://demos.yjs.dev/ws',
+      roomName,
+      this.doc,
+      { connect: true }
+    );
 
     // Setup User Presence & Awareness
-    this.webrtcProvider.awareness.setLocalStateField('user', {
+    this.wsProvider.awareness.setLocalStateField('user', {
       name: this.localUser.name,
       color: this.localUser.color,
     });
 
-    this.webrtcProvider.on('status', ({ connected }: { connected: boolean }) => {
+    this.wsProvider.on('status', ({ status }: { status: 'connected' | 'connecting' | 'disconnected' }) => {
+      const connected = status === 'connected';
       this.isConnected = connected;
       this.notifyConnectionListeners(connected);
     });
 
+    this.wsProvider.on('sync', (isSynced: boolean) => {
+      if (isSynced) {
+        this.isLoaded = true;
+        this.notifyLoadListeners(true);
+        this.notifyChangeListeners();
+        this.notifyBoardNameListeners();
+      }
+    });
+
     // Listen to Peer Awareness updates (collaborators & live cursors)
-    this.webrtcProvider.awareness.on('change', () => {
+    this.wsProvider.awareness.on('change', () => {
       this.notifyCollaboratorListeners();
     });
 
@@ -202,8 +222,8 @@ class WhiteboardService {
    * Update local cursor position for awareness broadcast to peers
    */
   public updateCursor(pos: { x: number; y: number } | null): void {
-    if (!this.webrtcProvider) return;
-    this.webrtcProvider.awareness.setLocalStateField('cursor', pos);
+    if (!this.wsProvider) return;
+    this.wsProvider.awareness.setLocalStateField('cursor', pos);
   }
 
   /**
@@ -212,8 +232,8 @@ class WhiteboardService {
   public updateUserName(name: string): void {
     this.localUser.name = name;
     localStorage.setItem('collab_user_name', name);
-    if (this.webrtcProvider) {
-      this.webrtcProvider.awareness.setLocalStateField('user', {
+    if (this.wsProvider) {
+      this.wsProvider.awareness.setLocalStateField('user', {
         name: this.localUser.name,
         color: this.localUser.color,
       });
@@ -228,9 +248,9 @@ class WhiteboardService {
    * Get active remote collaborators
    */
   public getCollaborators(): Collaborator[] {
-    if (!this.webrtcProvider) return [];
+    if (!this.wsProvider) return [];
 
-    const states = this.webrtcProvider.awareness.getStates();
+    const states = this.wsProvider.awareness.getStates();
     const collaborators: Collaborator[] = [];
     const localClientId = this.doc?.clientID;
 
@@ -252,9 +272,9 @@ class WhiteboardService {
    * Clean up document and providers when switching boards or unmounting.
    */
   public cleanup(): void {
-    if (this.webrtcProvider) {
-      this.webrtcProvider.destroy();
-      this.webrtcProvider = null;
+    if (this.wsProvider) {
+      this.wsProvider.destroy();
+      this.wsProvider = null;
     }
     if (this.indexeddbProvider) {
       this.indexeddbProvider.destroy();
@@ -420,7 +440,7 @@ class WhiteboardService {
   }
 
   /**
-   * Subscribe to WebRTC connection state.
+   * Subscribe to WebSocket connection state.
    */
   public subscribeConnection(listener: (isConnected: boolean) => void): () => void {
     this.connectionListeners.add(listener);
