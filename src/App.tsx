@@ -12,7 +12,7 @@ import { ToolType, ToolProperties, GridType, CanvasElement } from './types/white
  * CollabBoard Root Application Component
  * 
  * Manages active canvas tools, contextual property bar options,
- * selection states, and binds UI interactions to the Yjs CRDT store.
+ * selection states, clipboard, and binds UI interactions to the Yjs CRDT store.
  */
 export function App() {
   const {
@@ -36,6 +36,7 @@ export function App() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [gridType, setGridType] = useState<GridType>('dots');
   const [isShortcutsOpen, setIsShortcutsOpen] = useState<boolean>(false);
+  const [clipboard, setClipboard] = useState<CanvasElement[]>([]);
 
   const [toolProperties, setToolProperties] = useState<ToolProperties>({
     strokeColor: '#6366f1',
@@ -46,6 +47,7 @@ export function App() {
   });
 
   const stageRef = useRef<Konva.Stage | null>(null);
+  const hiddenFileInputRef = useRef<HTMLInputElement>(null);
 
   // Setup initial welcome content if empty board
   useEffect(() => {
@@ -58,7 +60,7 @@ export function App() {
           y: window.innerHeight / 2 - 140,
           width: 220,
           height: 180,
-          text: '✨ Welcome to CollabBoard!\n\n• Space+Drag to Pan\n• Scroll to Zoom\n• Double-click to edit\n• Drag images here',
+          text: '✨ Welcome to CollabBoard!\n\n• Right-click for Quick Menu\n• Space+Drag to Pan\n• Scroll to Zoom\n• Double-click to edit\n• Drag images here',
           color: 'yellow',
           fontSize: 17,
           zIndex: 1,
@@ -99,7 +101,71 @@ export function App() {
     }
   }, [isLoaded, elements.length, setBatchElements]);
 
-  // Global hotkeys for tools
+  // Selected elements list
+  const selectedElements = elements.filter((el) => selectedIds.includes(el.id));
+
+  // Copy elements to clipboard
+  const handleCopy = useCallback(() => {
+    if (selectedElements.length > 0) {
+      setClipboard(selectedElements);
+    }
+  }, [selectedElements]);
+
+  // Cut elements
+  const handleCut = useCallback(() => {
+    if (selectedElements.length > 0) {
+      setClipboard(selectedElements);
+      deleteElements(selectedIds);
+      setSelectedIds([]);
+    }
+  }, [selectedElements, selectedIds, deleteElements]);
+
+  // Paste elements
+  const handlePaste = useCallback(
+    (point?: { x: number; y: number }) => {
+      if (clipboard.length === 0) return;
+
+      const newElements: CanvasElement[] = [];
+      const newIds: string[] = [];
+
+      // Calculate bounding center of copied elements
+      let minX = Infinity, minY = Infinity;
+      clipboard.forEach((el) => {
+        minX = Math.min(minX, el.x);
+        minY = Math.min(minY, el.y);
+      });
+
+      clipboard.forEach((el) => {
+        const newId = crypto.randomUUID();
+        newIds.push(newId);
+
+        let targetX = el.x + 25;
+        let targetY = el.y + 25;
+
+        if (point) {
+          const offsetX = el.x - minX;
+          const offsetY = el.y - minY;
+          targetX = point.x + offsetX;
+          targetY = point.y + offsetY;
+        }
+
+        newElements.push({
+          ...el,
+          id: newId,
+          x: targetX,
+          y: targetY,
+          zIndex: getNextZIndex(),
+          updatedAt: Date.now(),
+        });
+      });
+
+      newElements.forEach((item) => setElement(item));
+      setSelectedIds(newIds);
+    },
+    [clipboard, getNextZIndex, setElement]
+  );
+
+  // Global hotkeys for tools & clipboard
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) {
@@ -119,6 +185,25 @@ export function App() {
         e.preventDefault();
         redo();
         return;
+      }
+
+      // Copy / Cut / Paste
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c' && selectedIds.length > 0) {
+        e.preventDefault();
+        handleCopy();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'x' && selectedIds.length > 0) {
+        e.preventDefault();
+        handleCut();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
+        if (clipboard.length > 0) {
+          e.preventDefault();
+          handlePaste();
+          return;
+        }
       }
 
       // Tool selection shortcuts
@@ -161,7 +246,7 @@ export function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo]);
+  }, [undo, redo, selectedIds, clipboard, handleCopy, handleCut, handlePaste]);
 
   // Handle image upload from file picker
   const handleUploadImage = useCallback(
@@ -207,9 +292,6 @@ export function App() {
     },
     [getNextZIndex, setElement]
   );
-
-  // Selected elements list
-  const selectedElements = elements.filter((el) => selectedIds.includes(el.id));
 
   // Update selected element attributes
   const handleUpdateSelected = useCallback(
@@ -318,6 +400,11 @@ export function App() {
         stageRef={stageRef}
         selectedIds={selectedIds}
         setSelectedIds={setSelectedIds}
+        onUploadImagePrompt={() => hiddenFileInputRef.current?.click()}
+        clipboard={clipboard}
+        onCopyElements={handleCopy}
+        onCutElements={handleCut}
+        onPasteElements={handlePaste}
       />
 
       {/* Main Toolbar */}
@@ -331,6 +418,21 @@ export function App() {
       <ShortcutsModal
         isOpen={isShortcutsOpen}
         onClose={() => setIsShortcutsOpen(false)}
+      />
+
+      {/* Hidden File Input for Image Upload from Context Menu */}
+      <input
+        ref={hiddenFileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) {
+            handleUploadImage(file);
+            e.target.value = '';
+          }
+        }}
+        className="hidden"
       />
     </div>
   );

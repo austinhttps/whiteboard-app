@@ -23,17 +23,20 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose 
   ];
 
   const actionShortcuts = [
+    { key: 'Right-Click', desc: 'Quick actions context menu' },
     { key: 'Space + Drag', desc: 'Pan canvas smoothly' },
     { key: 'Scroll Wheel', desc: 'Zoom in / out at cursor' },
     { key: 'Del / Backspace', desc: 'Delete selected elements' },
+    { key: 'Ctrl + C / X / V', desc: 'Copy, Cut, and Paste' },
+    { key: 'Ctrl + D', desc: 'Duplicate selected elements' },
+    { key: 'Ctrl + ] / [', desc: 'Bring to Front / Send to Back' },
+    { key: '] / [', desc: 'Bring Forward / Send Backward' },
     { key: 'Ctrl + Z', desc: 'Undo' },
     { key: 'Ctrl + Shift + Z / Y', desc: 'Redo' },
-    { key: 'Ctrl + D', desc: 'Duplicate selected elements' },
     { key: 'Ctrl + A', desc: 'Select all elements' },
     { key: 'Esc', desc: 'Deselect / Cancel edit' },
     { key: 'Double Click', desc: 'Edit Sticky Note or Text' },
     { key: 'Drag & Drop File', desc: 'Drop images directly onto canvas' },
-    { key: 'Ctrl + V', desc: 'Paste image or text from clipboard' },
   ];
 
   return (

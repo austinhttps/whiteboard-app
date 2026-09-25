@@ -4,6 +4,8 @@ import Konva from 'konva';
 import { CanvasElement, ToolType, ToolProperties, GridType, StickyColor } from '../../types/whiteboard';
 import { ElementRenderer } from './ElementRenderer';
 import { GridBackground } from './GridBackground';
+import { ContextMenu } from '../ContextMenu/ContextMenu';
+import { exportStageToPNG } from '../../utils/exportUtils';
 
 interface WhiteboardProps {
   elements: CanvasElement[];
@@ -19,6 +21,11 @@ interface WhiteboardProps {
   stageRef: React.RefObject<Konva.Stage | null>;
   selectedIds: string[];
   setSelectedIds: React.Dispatch<React.SetStateAction<string[]>>;
+  onUploadImagePrompt: () => void;
+  clipboard: CanvasElement[];
+  onCopyElements: () => void;
+  onCutElements: () => void;
+  onPasteElements: (point?: { x: number; y: number }) => void;
 }
 
 interface InlineEditingState {
@@ -48,6 +55,11 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
   stageRef,
   selectedIds,
   setSelectedIds,
+  onUploadImagePrompt,
+  clipboard,
+  onCopyElements,
+  onCutElements,
+  onPasteElements,
 }) => {
   const [stagePos, setStagePos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [stageScale, setStageScale] = useState<number>(1);
@@ -70,6 +82,14 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
   // Inline editing overlay
   const [editingItem, setEditingItem] = useState<InlineEditingState | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Context Menu State
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    canvasPoint: { x: number; y: number };
+    targetElement: CanvasElement | null;
+  } | null>(null);
 
   const transformerRef = useRef<Konva.Transformer>(null);
   const layerRef = useRef<Konva.Layer>(null);
@@ -129,6 +149,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
         if (editingItem) {
           commitInlineEdit();
         }
+        setContextMenu(null);
         onSetTool('select');
       }
 
@@ -139,30 +160,40 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
         onSetTool('select');
       }
 
+      // Copy (Ctrl+C / Cmd+C)
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c' && selectedIds.length > 0) {
+        e.preventDefault();
+        onCopyElements();
+      }
+
+      // Cut (Ctrl+X / Cmd+X)
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'x' && selectedIds.length > 0) {
+        e.preventDefault();
+        onCutElements();
+      }
+
+      // Layer ordering shortcuts: [ and ]
+      if (e.key === ']' && selectedIds.length > 0) {
+        e.preventDefault();
+        if (e.ctrlKey || e.metaKey) {
+          handleBringToFront();
+        } else {
+          handleBringForward();
+        }
+      }
+      if (e.key === '[' && selectedIds.length > 0) {
+        e.preventDefault();
+        if (e.ctrlKey || e.metaKey) {
+          handleSendToBack();
+        } else {
+          handleSendBackward();
+        }
+      }
+
       // Duplicate (Ctrl+D / Cmd+D)
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd' && selectedIds.length > 0) {
         e.preventDefault();
-        const duplicates: CanvasElement[] = [];
-        const newIds: string[] = [];
-
-        selectedIds.forEach((id) => {
-          const el = elements.find((item) => item.id === id);
-          if (el) {
-            const newId = crypto.randomUUID();
-            newIds.push(newId);
-            duplicates.push({
-              ...el,
-              id: newId,
-              x: el.x + 30,
-              y: el.y + 30,
-              zIndex: getNextZIndex(),
-              updatedAt: Date.now(),
-            });
-          }
-        });
-
-        duplicates.forEach((dup) => onSetElement(dup));
-        setSelectedIds(newIds);
+        handleDuplicate();
       }
     };
 
@@ -179,7 +210,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [isSpacePressed, selectedIds, elements, editingItem, onSetTool, onDeleteElements, getNextZIndex, onSetElement]);
+  });
 
   // Focus textarea when editing starts
   useEffect(() => {
@@ -229,8 +260,68 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
     setStagePos(newPos);
   };
 
+  // Right-Click Context Menu Trigger
+  const handleContextMenu = (e: React.MouseEvent<HTMLDivElement> | Konva.KonvaEventObject<PointerEvent>) => {
+    if ('evt' in e) {
+      e.evt.preventDefault();
+    } else {
+      e.preventDefault();
+    }
+
+    const stage = stageRef.current;
+    if (!stage) return;
+
+    const point = getCanvasPoint(stage);
+
+    let clientX = 0;
+    let clientY = 0;
+
+    if ('evt' in e) {
+      clientX = (e.evt as MouseEvent).clientX;
+      clientY = (e.evt as MouseEvent).clientY;
+    } else {
+      clientX = e.clientX;
+      clientY = e.clientY;
+    }
+
+    // Check if right-clicked on an existing canvas node
+    let targetEl: CanvasElement | null = null;
+    const targetNode = 'target' in e ? (e.target as any) : null;
+    if (targetNode && typeof targetNode.id === 'function' && targetNode !== stage && targetNode.name?.() !== 'background-rect') {
+      const id = targetNode.id();
+      if (id) {
+        targetEl = elements.find((el) => el.id === id) || null;
+        if (targetEl && !selectedIds.includes(targetEl.id)) {
+          setSelectedIds([targetEl.id]);
+        }
+      }
+    }
+
+    // If already has selection and right-clicked on empty space, keep selection target
+    if (!targetEl && selectedIds.length > 0) {
+      targetEl = elements.find((el) => el.id === selectedIds[0]) || null;
+    }
+
+    setContextMenu({
+      x: clientX,
+      y: clientY,
+      canvasPoint: point,
+      targetElement: targetEl,
+    });
+  };
+
   // Mouse Down / Touch Start
   const handleMouseDown = (e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+    // If right click, let context menu handle it
+    if ((e.evt as MouseEvent).button === 2) {
+      return;
+    }
+
+    // Close open context menu on left click
+    if (contextMenu) {
+      setContextMenu(null);
+    }
+
     const stage = stageRef.current;
     if (!stage) return;
 
@@ -273,8 +364,8 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
       const newSticky: CanvasElement = {
         id: crypto.randomUUID(),
         type: 'sticky',
-        x: point.x - 80,
-        y: point.y - 80,
+        x: point.x - 85,
+        y: point.y - 85,
         width: 170,
         height: 170,
         text: 'New Note',
@@ -588,6 +679,198 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
     setEditingItem(null);
   };
 
+  // Selected Elements actions for Context Menu
+  const selectedElements = elements.filter((el) => selectedIds.includes(el.id));
+
+  const handleDuplicate = () => {
+    const targetList = selectedElements.length > 0 ? selectedElements : (contextMenu?.targetElement ? [contextMenu.targetElement] : []);
+    const duplicates: CanvasElement[] = [];
+    const newIds: string[] = [];
+
+    targetList.forEach((el) => {
+      const newId = crypto.randomUUID();
+      newIds.push(newId);
+      duplicates.push({
+        ...el,
+        id: newId,
+        x: el.x + 30,
+        y: el.y + 30,
+        zIndex: getNextZIndex(),
+        updatedAt: Date.now(),
+      });
+    });
+
+    duplicates.forEach((dup) => onSetElement(dup));
+    setSelectedIds(newIds);
+  };
+
+  const handleDelete = () => {
+    if (selectedIds.length > 0) {
+      onDeleteElements(selectedIds);
+      setSelectedIds([]);
+    } else if (contextMenu?.targetElement) {
+      onDeleteElement(contextMenu.targetElement.id);
+    }
+  };
+
+  const handleBringToFront = () => {
+    const maxZ = Math.max(...elements.map((el) => el.zIndex ?? 0), 0);
+    selectedElements.forEach((el, index) => {
+      onSetElement({
+        ...el,
+        zIndex: maxZ + 1 + index,
+        updatedAt: Date.now(),
+      });
+    });
+  };
+
+  const handleSendToBack = () => {
+    const minZ = Math.min(...elements.map((el) => el.zIndex ?? 0), 0);
+    selectedElements.forEach((el, index) => {
+      onSetElement({
+        ...el,
+        zIndex: minZ - 1 - (selectedElements.length - index),
+        updatedAt: Date.now(),
+      });
+    });
+  };
+
+  const handleBringForward = () => {
+    selectedElements.forEach((el) => {
+      onSetElement({
+        ...el,
+        zIndex: (el.zIndex ?? 0) + 1,
+        updatedAt: Date.now(),
+      });
+    });
+  };
+
+  const handleSendBackward = () => {
+    selectedElements.forEach((el) => {
+      onSetElement({
+        ...el,
+        zIndex: Math.max(0, (el.zIndex ?? 0) - 1),
+        updatedAt: Date.now(),
+      });
+    });
+  };
+
+  const handleQuickAddSticky = (point: { x: number; y: number }, color: StickyColor = 'yellow') => {
+    const newSticky: CanvasElement = {
+      id: crypto.randomUUID(),
+      type: 'sticky',
+      x: point.x - 85,
+      y: point.y - 85,
+      width: 170,
+      height: 170,
+      text: 'New Note',
+      color,
+      fontSize: 18,
+      zIndex: getNextZIndex(),
+      updatedAt: Date.now(),
+    };
+    onSetElement(newSticky);
+    setSelectedIds([newSticky.id]);
+    onSetTool('select');
+  };
+
+  const handleQuickAddText = (point: { x: number; y: number }) => {
+    const newText: CanvasElement = {
+      id: crypto.randomUUID(),
+      type: 'text',
+      x: point.x,
+      y: point.y,
+      text: 'Type text here...',
+      fontSize: toolProperties.fontSize || 22,
+      fontFamily: 'Inter, sans-serif',
+      fill: toolProperties.strokeColor || '#f8fafc',
+      zIndex: getNextZIndex(),
+      updatedAt: Date.now(),
+    };
+    onSetElement(newText);
+    setSelectedIds([newText.id]);
+    onSetTool('select');
+  };
+
+  const handleQuickAddShape = (type: 'rect' | 'circle' | 'arrow' | 'line', point: { x: number; y: number }) => {
+    const nextZ = getNextZIndex();
+    let newEl: CanvasElement;
+
+    if (type === 'rect') {
+      newEl = {
+        id: crypto.randomUUID(),
+        type: 'rect',
+        x: point.x - 70,
+        y: point.y - 50,
+        width: 140,
+        height: 100,
+        fill: toolProperties.fillColor,
+        stroke: toolProperties.strokeColor,
+        strokeWidth: toolProperties.strokeWidth,
+        cornerRadius: 6,
+        zIndex: nextZ,
+        updatedAt: Date.now(),
+      };
+    } else if (type === 'circle') {
+      newEl = {
+        id: crypto.randomUUID(),
+        type: 'circle',
+        x: point.x,
+        y: point.y,
+        radiusX: 60,
+        radiusY: 60,
+        fill: toolProperties.fillColor,
+        stroke: toolProperties.strokeColor,
+        strokeWidth: toolProperties.strokeWidth,
+        zIndex: nextZ,
+        updatedAt: Date.now(),
+      };
+    } else if (type === 'arrow') {
+      newEl = {
+        id: crypto.randomUUID(),
+        type: 'arrow',
+        points: [point.x - 60, point.y - 40, point.x + 60, point.y + 40],
+        color: toolProperties.strokeColor,
+        strokeWidth: toolProperties.strokeWidth,
+        x: 0,
+        y: 0,
+        zIndex: nextZ,
+        updatedAt: Date.now(),
+      };
+    } else {
+      newEl = {
+        id: crypto.randomUUID(),
+        type: 'line',
+        points: [point.x - 60, point.y, point.x + 60, point.y],
+        color: toolProperties.strokeColor,
+        strokeWidth: toolProperties.strokeWidth,
+        x: 0,
+        y: 0,
+        zIndex: nextZ,
+        updatedAt: Date.now(),
+      };
+    }
+
+    onSetElement(newEl);
+    setSelectedIds([newEl.id]);
+    onSetTool('select');
+  };
+
+  const handleResetZoom = () => {
+    setStageScale(1);
+    setStagePos({ x: 0, y: 0 });
+  };
+
+  const handleExportCurrentViewport = () => {
+    if (stageRef.current) {
+      exportStageToPNG(stageRef.current, {
+        pixelRatio: 2,
+        scope: 'viewport',
+        fileName: `whiteboard-viewport-${Date.now()}.png`,
+      });
+    }
+  };
+
   // Drag & Drop image onto canvas
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -642,66 +925,6 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
     });
   };
 
-  // Clipboard paste image / text
-  useEffect(() => {
-    const handlePaste = (e: ClipboardEvent) => {
-      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) {
-        return;
-      }
-
-      const items = e.clipboardData?.items;
-      if (!items) return;
-
-      for (let i = 0; i < items.length; i++) {
-        if (items[i].type.indexOf('image') !== -1) {
-          const blob = items[i].getAsFile();
-          if (!blob) continue;
-
-          const reader = new FileReader();
-          reader.onload = (event) => {
-            const src = event.target?.result as string;
-            const stage = stageRef.current;
-            const stageX = stage ? (-stage.x() + stage.width() / 2) / stage.scaleX() : 200;
-            const stageY = stage ? (-stage.y() + stage.height() / 2) / stage.scaleY() : 200;
-
-            const img = new window.Image();
-            img.src = src;
-            img.onload = () => {
-              const maxDim = 300;
-              let width = img.width;
-              let height = img.height;
-              if (width > maxDim || height > maxDim) {
-                const ratio = Math.min(maxDim / width, maxDim / height);
-                width = width * ratio;
-                height = height * ratio;
-              }
-
-              const newEl: CanvasElement = {
-                id: crypto.randomUUID(),
-                type: 'image',
-                src,
-                x: stageX - width / 2,
-                y: stageY - height / 2,
-                width,
-                height,
-                zIndex: getNextZIndex(),
-                updatedAt: Date.now(),
-              };
-
-              onSetElement(newEl);
-              setSelectedIds([newEl.id]);
-            };
-          };
-          reader.readAsDataURL(blob);
-          break;
-        }
-      }
-    };
-
-    window.addEventListener('paste', handlePaste);
-    return () => window.removeEventListener('paste', handlePaste);
-  }, [stageRef, getNextZIndex, onSetElement, setSelectedIds]);
-
   // Cursor style
   let cursorStyle = 'default';
   if (isSpacePressed || currentTool === 'pan') {
@@ -721,6 +944,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
       className="relative w-full h-full overflow-hidden select-none bg-slate-950"
       onDragOver={handleDragOver}
       onDrop={handleDrop}
+      onContextMenu={handleContextMenu}
       style={{ cursor: cursorStyle }}
     >
       <Stage
@@ -738,6 +962,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
         onTouchStart={handleMouseDown}
         onTouchMove={handleMouseMove}
         onTouchEnd={handleMouseUp}
+        onContextMenu={handleContextMenu}
       >
         <Layer ref={layerRef}>
           {/* Background Grid */}
@@ -863,6 +1088,62 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
           />
         </Layer>
       </Stage>
+
+      {/* Custom Context Menu */}
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          canvasPoint={contextMenu.canvasPoint}
+          targetElement={contextMenu.targetElement}
+          selectedElements={selectedElements}
+          onClose={() => setContextMenu(null)}
+          onDuplicate={handleDuplicate}
+          onDelete={handleDelete}
+          onBringToFront={handleBringToFront}
+          onSendToBack={handleSendToBack}
+          onBringForward={handleBringForward}
+          onSendBackward={handleSendBackward}
+          onEditItem={() => {
+            if (contextMenu.targetElement) {
+              const el = contextMenu.targetElement;
+              handleStartEditing(el.id, {
+                x: el.x * stageScale + stagePos.x,
+                y: el.y * stageScale + stagePos.y,
+                width: ((el as any).width || 120) * stageScale,
+                height: ((el as any).height || 60) * stageScale,
+                text: (el as any).text || '',
+                fontSize: ((el as any).fontSize || 18) * stageScale,
+                color: (el as any).color,
+                fill: (el as any).fill,
+              });
+            }
+          }}
+          onChangeColor={(col) => {
+            if (contextMenu.targetElement && contextMenu.targetElement.type === 'sticky') {
+              onSetElement({
+                ...contextMenu.targetElement,
+                color: col as StickyColor,
+                updatedAt: Date.now(),
+              });
+            }
+          }}
+          onAddSticky={handleQuickAddSticky}
+          onAddText={handleQuickAddText}
+          onAddShape={handleQuickAddShape}
+          onSelectAll={() => {
+            setSelectedIds(elements.map((el) => el.id));
+            onSetTool('select');
+          }}
+          onResetZoom={handleResetZoom}
+          onExportViewport={handleExportCurrentViewport}
+          onUploadImage={onUploadImagePrompt}
+          onCopy={onCopyElements}
+          onCut={onCutElements}
+          onPaste={onPasteElements}
+          hasClipboard={clipboard.length > 0}
+        />
+      )}
 
       {/* Floating HTML Overlay for Double-Click Inline Text Editing */}
       {editingItem && (
