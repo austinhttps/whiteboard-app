@@ -210,6 +210,22 @@ export function App() {
         return;
       }
 
+      // Delete / Backspace key
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedIds.length > 0) {
+        e.preventDefault();
+        deleteElements(selectedIds);
+        setSelectedIds([]);
+        return;
+      }
+
+      // Select All (Ctrl+A / Cmd+A)
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        setSelectedIds(elements.map((el) => el.id));
+        setCurrentTool('select');
+        return;
+      }
+
       // Undo / Redo
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
@@ -284,7 +300,7 @@ export function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo, selectedIds, clipboard, handleCopy, handleCut, handlePaste]);
+  }, [undo, redo, selectedIds, elements, clipboard, handleCopy, handleCut, handlePaste, deleteElements]);
 
   // Handle image upload from file picker
   const handleUploadImage = useCallback(

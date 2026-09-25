@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Undo2,
   Redo2,
@@ -645,109 +646,113 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* Clear Confirmation Modal (Centered in window) */}
-      {showClearConfirm && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div
-            className={`border rounded-2xl p-6 max-w-sm w-full shadow-2xl animate-in fade-in zoom-in-95 duration-150 ${
-              isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
-            }`}
-          >
-            <h3 className={`text-base font-bold mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
-              Clear Entire Whiteboard?
-            </h3>
-            <p className={`text-xs mb-6 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
-              This will remove all shapes, notes, and drawings on this board. You can still undo this action immediately with Ctrl+Z.
-            </p>
-            <div className="flex items-center justify-end gap-2">
-              <button
-                onClick={() => setShowClearConfirm(false)}
-                className={`px-4 py-2 text-xs font-medium rounded-xl transition-all ${
-                  isDark
-                    ? 'text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700'
-                    : 'text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200'
-                }`}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  onClearAll();
-                  setShowClearConfirm(false);
-                }}
-                className="px-4 py-2 text-xs font-semibold text-white bg-red-600 hover:bg-red-500 rounded-xl transition-all shadow-lg shadow-red-600/20"
-              >
-                Clear Board
-              </button>
+      {showClearConfirm &&
+        createPortal(
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div
+              className={`border rounded-2xl p-6 max-w-sm w-full shadow-2xl animate-in fade-in zoom-in-95 duration-150 ${
+                isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+              }`}
+            >
+              <h3 className={`text-base font-bold mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                Clear Entire Whiteboard?
+              </h3>
+              <p className={`text-xs mb-6 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                This will remove all shapes, notes, and drawings on this board. You can still undo this action immediately with Ctrl+Z.
+              </p>
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  onClick={() => setShowClearConfirm(false)}
+                  className={`px-4 py-2 text-xs font-medium rounded-xl transition-all ${
+                    isDark
+                      ? 'text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700'
+                      : 'text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200'
+                  }`}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    onClearAll();
+                    setShowClearConfirm(false);
+                  }}
+                  className="px-4 py-2 text-xs font-semibold text-white bg-red-600 hover:bg-red-500 rounded-xl transition-all shadow-lg shadow-red-600/20"
+                >
+                  Clear Board
+                </button>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
 
       {/* User Nickname Change Modal */}
-      {showUserModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div
-            className={`border rounded-2xl p-6 max-w-sm w-full shadow-2xl animate-in fade-in zoom-in-95 duration-150 ${
-              isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
-            }`}
-          >
-            <div className="flex items-center gap-2 mb-3">
-              <div
-                className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-md"
-                style={{ backgroundColor: localUser.color }}
-              >
-                <User className="w-4 h-4" />
+      {showUserModal &&
+        createPortal(
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div
+              className={`border rounded-2xl p-6 max-w-sm w-full shadow-2xl animate-in fade-in zoom-in-95 duration-150 ${
+                isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+              }`}
+            >
+              <div className="flex items-center gap-2 mb-3">
+                <div
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-md"
+                  style={{ backgroundColor: localUser.color }}
+                >
+                  <User className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>Your Display Profile</h3>
+                  <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Shown to other collaborators in real-time</p>
+                </div>
               </div>
-              <div>
-                <h3 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>Your Display Profile</h3>
-                <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Shown to other collaborators in real-time</p>
+
+              <div className="mb-4">
+                <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                  Collaborator Nickname
+                </label>
+                <input
+                  type="text"
+                  value={tempUserName}
+                  onChange={(e) => setTempUserName(e.target.value)}
+                  placeholder="Enter your name"
+                  className={`w-full px-3 py-2 border rounded-xl text-xs outline-none focus:border-indigo-500 transition-colors ${
+                    isDark
+                      ? 'bg-slate-950 border-slate-700 text-white'
+                      : 'bg-slate-50 border-slate-300 text-slate-900'
+                  }`}
+                  maxLength={30}
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  onClick={() => setShowUserModal(false)}
+                  className={`px-4 py-2 text-xs font-medium rounded-xl transition-all ${
+                    isDark
+                      ? 'text-slate-300 hover:text-white bg-slate-800'
+                      : 'text-slate-700 hover:text-slate-900 bg-slate-100'
+                  }`}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    if (tempUserName.trim()) {
+                      onUpdateUserName(tempUserName.trim());
+                    }
+                    setShowUserModal(false);
+                  }}
+                  className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-xl transition-all shadow-lg shadow-indigo-600/20"
+                >
+                  Save
+                </button>
               </div>
             </div>
-
-            <div className="mb-4">
-              <label className={`block text-xs font-medium mb-1.5 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
-                Collaborator Nickname
-              </label>
-              <input
-                type="text"
-                value={tempUserName}
-                onChange={(e) => setTempUserName(e.target.value)}
-                placeholder="Enter your name"
-                className={`w-full px-3 py-2 border rounded-xl text-xs outline-none focus:border-indigo-500 transition-colors ${
-                  isDark
-                    ? 'bg-slate-950 border-slate-700 text-white'
-                    : 'bg-slate-50 border-slate-300 text-slate-900'
-                }`}
-                maxLength={30}
-              />
-            </div>
-
-            <div className="flex items-center justify-end gap-2">
-              <button
-                onClick={() => setShowUserModal(false)}
-                className={`px-4 py-2 text-xs font-medium rounded-xl transition-all ${
-                  isDark
-                    ? 'text-slate-300 hover:text-white bg-slate-800'
-                    : 'text-slate-700 hover:text-slate-900 bg-slate-100'
-                }`}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  if (tempUserName.trim()) {
-                    onUpdateUserName(tempUserName.trim());
-                  }
-                  setShowUserModal(false);
-                }}
-                className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-xl transition-all shadow-lg shadow-indigo-600/20"
-              >
-                Save
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </header>
   );
 };

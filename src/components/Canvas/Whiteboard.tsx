@@ -51,6 +51,56 @@ interface InlineEditingState {
   fill?: string;
 }
 
+function getElementBounds(el: CanvasElement): { minX: number; minY: number; maxX: number; maxY: number } {
+  if (el.type === 'rect' || el.type === 'sticky' || el.type === 'image') {
+    const width = el.width || 120;
+    const height = el.height || 80;
+    return {
+      minX: el.x,
+      minY: el.y,
+      maxX: el.x + width,
+      maxY: el.y + height,
+    };
+  }
+  if (el.type === 'circle') {
+    const rx = el.radiusX || 30;
+    const ry = el.radiusY || 30;
+    return {
+      minX: el.x - rx,
+      minY: el.y - ry,
+      maxX: el.x + rx,
+      maxY: el.y + ry,
+    };
+  }
+  if (el.type === 'text') {
+    const fontSize = el.fontSize || 20;
+    const textLen = Math.max((el.text || '').length, 1);
+    const width = Math.max(textLen * fontSize * 0.6, 60);
+    const height = fontSize * 1.4;
+    return {
+      minX: el.x,
+      minY: el.y,
+      maxX: el.x + width,
+      maxY: el.y + height,
+    };
+  }
+  if (el.type === 'pen' || el.type === 'arrow' || el.type === 'line') {
+    const pts = el.points || [];
+    if (pts.length === 0) return { minX: el.x, minY: el.y, maxX: el.x + 10, maxY: el.y + 10 };
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (let i = 0; i < pts.length; i += 2) {
+      const px = pts[i] + (el.x || 0);
+      const py = pts[i + 1] + (el.y || 0);
+      minX = Math.min(minX, px);
+      minY = Math.min(minY, py);
+      maxX = Math.max(maxX, px);
+      maxY = Math.max(maxY, py);
+    }
+    return { minX, minY, maxX, maxY };
+  }
+  return { minX: (el as any).x || 0, minY: (el as any).y || 0, maxX: ((el as any).x || 0) + 50, maxY: ((el as any).y || 0) + 50 };
+}
+
 export const Whiteboard: React.FC<WhiteboardProps> = ({
   elements,
   currentTool,
@@ -587,14 +637,24 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
       const x2 = Math.max(selectionBox.x1, selectionBox.x2);
       const y2 = Math.max(selectionBox.y1, selectionBox.y2);
 
-      const matchedIds: string[] = [];
-      elements.forEach((el) => {
-        if (el.x >= x1 && el.x <= x2 && el.y >= y1 && el.y <= y2) {
-          matchedIds.push(el.id);
-        }
-      });
+      // Only perform box selection if box was actually dragged
+      if (Math.abs(x2 - x1) > 3 || Math.abs(y2 - y1) > 3) {
+        const matchedIds: string[] = [];
+        elements.forEach((el) => {
+          const bounds = getElementBounds(el);
+          const hasOverlap = !(
+            bounds.maxX < x1 ||
+            bounds.minX > x2 ||
+            bounds.maxY < y1 ||
+            bounds.minY > y2
+          );
+          if (hasOverlap) {
+            matchedIds.push(el.id);
+          }
+        });
 
-      setSelectedIds(matchedIds);
+        setSelectedIds(matchedIds);
+      }
       setSelectionBox(null);
       return;
     }
@@ -658,7 +718,8 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
         prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
       );
     } else {
-      setSelectedIds([id]);
+      // If the clicked item is already part of the selected set, preserve the group selection
+      setSelectedIds((prev) => (prev.includes(id) && prev.length > 1 ? prev : [id]));
     }
   };
 
