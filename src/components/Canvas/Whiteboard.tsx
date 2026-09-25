@@ -201,8 +201,8 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
   // Spacebar panning listener & hotkeys
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't trigger if user is typing in textarea or input
-      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) {
+      // Don't trigger if user is typing in textarea, input, or inline editing
+      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName) || editingItem) {
         return;
       }
 
@@ -286,13 +286,17 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
     };
   });
 
-  // Focus textarea when editing starts
+  // Focus and select textarea only once when starting to edit a new item
+  const prevEditingId = useRef<string | null>(null);
   useEffect(() => {
-    if (editingItem && textareaRef.current) {
+    if (editingItem && editingItem.id !== prevEditingId.current && textareaRef.current) {
       textareaRef.current.focus();
       textareaRef.current.select();
+      prevEditingId.current = editingItem.id;
+    } else if (!editingItem) {
+      prevEditingId.current = null;
     }
-  }, [editingItem]);
+  }, [editingItem?.id]);
 
   // Helper: Convert screen/viewport pointer to stage canvas coordinate
   const getCanvasPoint = useCallback((stage: Konva.Stage) => {
