@@ -6,6 +6,8 @@ import { MainToolbar } from './components/Toolbar/MainToolbar';
 import { PropertyBar } from './components/Toolbar/PropertyBar';
 import { Header } from './components/Header/Header';
 import { ShortcutsModal } from './components/Modals/ShortcutsModal';
+import { EmojiPickerPopover } from './components/Modals/EmojiPickerPopover';
+import { CommentThreadModal } from './components/Modals/CommentThreadModal';
 import { ToolType, ToolProperties, GridType, CanvasElement, ThemeMode } from './types/whiteboard';
 
 /**
@@ -20,6 +22,7 @@ export function App() {
     boardName,
     setBoardName,
     elements,
+    comments,
     isLoaded,
     isConnected,
     collaborators,
@@ -31,6 +34,11 @@ export function App() {
     setBatchElements,
     deleteElement,
     deleteElements,
+    toggleReaction,
+    addComment,
+    addReply,
+    deleteComment,
+    toggleResolveComment,
     clearAll,
     undo,
     redo,
@@ -75,6 +83,8 @@ export function App() {
   const [gridType, setGridType] = useState<GridType>('dots');
   const [isShortcutsOpen, setIsShortcutsOpen] = useState<boolean>(false);
   const [clipboard, setClipboard] = useState<CanvasElement[]>([]);
+  const [activeCommentElementId, setActiveCommentElementId] = useState<string | null>(null);
+  const [activeEmojiPicker, setActiveEmojiPicker] = useState<{ elementId: string; position: { x: number; y: number } } | null>(null);
 
   const [toolProperties, setToolProperties] = useState<ToolProperties>({
     strokeColor: '#6366f1',
@@ -410,6 +420,11 @@ export function App() {
 
   const isDark = theme === 'dark';
 
+  const selectedCommentCount = selectedElements.length === 1
+    ? comments.filter((c) => c.elementId === selectedElements[0].id).length
+    : 0;
+  const activeCommentElement = elements.find((el) => el.id === activeCommentElementId) || null;
+
   return (
     <div className={`relative w-screen h-screen overflow-hidden font-sans transition-colors ${
       isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'
@@ -451,11 +466,16 @@ export function App() {
         onDeleteSelected={handleDeleteSelected}
         onDuplicateSelected={handleDuplicateSelected}
         onReorderSelected={handleReorderSelected}
+        onOpenEmojiPicker={(elementId, position) => setActiveEmojiPicker({ elementId, position })}
+        onOpenComments={(elementId) => setActiveCommentElementId(elementId)}
+        commentCount={selectedCommentCount}
       />
 
       {/* Main Interactive Canvas */}
       <Whiteboard
         elements={elements}
+        comments={comments}
+        localUser={localUser}
         currentTool={currentTool}
         toolProperties={toolProperties}
         gridType={gridType}
@@ -476,6 +496,9 @@ export function App() {
         onPasteElements={handlePaste}
         collaborators={collaborators}
         onUpdateCursor={updateCursor}
+        onToggleReaction={toggleReaction}
+        onOpenEmojiPicker={(elementId, position) => setActiveEmojiPicker({ elementId, position })}
+        onOpenComments={(elementId) => setActiveCommentElementId(elementId)}
       />
 
       {/* Main Toolbar */}
@@ -491,6 +514,36 @@ export function App() {
         isOpen={isShortcutsOpen}
         onClose={() => setIsShortcutsOpen(false)}
       />
+
+      {/* Emoji Picker Popover */}
+      {activeEmojiPicker && (
+        <EmojiPickerPopover
+          isOpen={true}
+          position={activeEmojiPicker.position}
+          theme={theme}
+          onClose={() => setActiveEmojiPicker(null)}
+          onSelectEmoji={(emoji) => {
+            toggleReaction(activeEmojiPicker.elementId, emoji);
+            setActiveEmojiPicker(null);
+          }}
+        />
+      )}
+
+      {/* Threaded Comments Drawer/Modal */}
+      {activeCommentElementId && (
+        <CommentThreadModal
+          isOpen={true}
+          onClose={() => setActiveCommentElementId(null)}
+          element={activeCommentElement}
+          comments={comments}
+          localUser={localUser}
+          onAddComment={addComment}
+          onAddReply={addReply}
+          onDeleteComment={deleteComment}
+          onToggleResolve={toggleResolveComment}
+          theme={theme}
+        />
+      )}
 
       {/* Hidden File Input for Image Upload from Context Menu */}
       <input

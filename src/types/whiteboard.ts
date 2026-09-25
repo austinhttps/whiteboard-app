@@ -20,6 +20,33 @@ export interface ElementBinding {
   anchor: ConnectionAnchor;
 }
 
+export interface ReactionItem {
+  id: string;
+  emoji: string;
+  userId: string;
+  userName: string;
+  createdAt: number;
+}
+
+export interface CommentReply {
+  id: string;
+  author: string;
+  authorColor: string;
+  text: string;
+  createdAt: number;
+}
+
+export interface CommentThread {
+  id: string;
+  elementId: string;
+  author: string;
+  authorColor: string;
+  text: string;
+  createdAt: number;
+  replies: CommentReply[];
+  resolved?: boolean;
+}
+
 export interface BaseElement {
   id: string;
   type: string;
@@ -28,6 +55,7 @@ export interface BaseElement {
   rotation?: number;
   zIndex: number;
   updatedAt: number;
+  reactions?: ReactionItem[];
 }
 
 export interface PenElement extends BaseElement {

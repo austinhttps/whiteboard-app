@@ -20,6 +20,7 @@ import {
   CheckSquare,
   Download,
   Edit3,
+  MessageSquare,
 } from 'lucide-react';
 import { CanvasElement, StickyColor } from '../../types/whiteboard';
 
@@ -49,6 +50,8 @@ export interface ContextMenuProps {
   onCut: () => void;
   onPaste: (point: { x: number; y: number }) => void;
   hasClipboard: boolean;
+  onToggleReaction?: (elementId: string, emoji: string) => void;
+  onOpenComments?: (elementId: string) => void;
 }
 
 const STICKY_QUICK_COLORS: { id: StickyColor; bg: string }[] = [
@@ -86,6 +89,8 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
   onCut,
   onPaste,
   hasClipboard,
+  onToggleReaction,
+  onOpenComments,
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
   const [adjustedPos, setAdjustedPos] = useState<{ top: number; left: number }>({ top: y, left: x });
@@ -157,6 +162,39 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
                 : `${targetElement?.type?.toUpperCase() || 'Object'} Selected`}
             </span>
           </div>
+
+          {/* Quick Reaction Strip */}
+          {targetElement && onToggleReaction && (
+            <div className="px-2 py-1 flex items-center justify-between border-b border-slate-800 pb-1.5 mb-1">
+              {['👍', '❤️', '🔥', '🚀', '🎉', '👀', '💡'].map((emoji) => (
+                <button
+                  key={emoji}
+                  onClick={() => {
+                    onToggleReaction(targetElement.id, emoji);
+                    onClose();
+                  }}
+                  className="w-6 h-6 flex items-center justify-center text-sm rounded-lg hover:bg-slate-800 hover:scale-125 transition-transform"
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Comments action */}
+          {targetElement && onOpenComments && (
+            <button
+              onClick={() => {
+                onOpenComments(targetElement.id);
+                onClose();
+              }}
+              className="flex items-center justify-between w-full px-2.5 py-1.5 text-left rounded-xl hover:bg-slate-800 transition-all text-slate-300 hover:text-white"
+            >
+              <span className="flex items-center gap-2">
+                <MessageSquare className="w-3.5 h-3.5 text-indigo-400" /> Comments & Discussion
+              </span>
+            </button>
+          )}
 
           {/* Edit in place if Text/Sticky */}
           {isEditableText && onEditItem && (

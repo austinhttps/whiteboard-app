@@ -1,7 +1,7 @@
 import * as Y from 'yjs';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import { WebsocketProvider } from 'y-websocket';
-import { CanvasElement, Collaborator } from '../types/whiteboard';
+import { CanvasElement, Collaborator, CommentThread, CommentReply, ReactionItem } from '../types/whiteboard';
 
 const USER_COLORS = [
   '#6366f1', // Indigo
@@ -26,22 +26,24 @@ const USER_NAMES = [
 ];
 
 /**
- * Manages the Yjs Document, IndexedDB persistence, WebSocket real-time sync, and peer awareness.
+ * Manages the Yjs Document, IndexedDB persistence, WebSocket real-time sync, peer awareness, reactions, and threaded comments.
  */
 class WhiteboardService {
   private doc: Y.Doc | null = null;
   private indexeddbProvider: IndexeddbPersistence | null = null;
   private wsProvider: WebsocketProvider | null = null;
   private elementsMap: Y.Map<CanvasElement> | null = null;
+  private commentsMap: Y.Map<CommentThread> | null = null;
   private metaMap: Y.Map<any> | null = null;
   private undoManager: Y.UndoManager | null = null;
   private currentBoardId: string = '';
   private isLoaded: boolean = false;
   private isConnected: boolean = false;
-  private localUser: { name: string; color: string };
+  private localUser: { name: string; color: string; id: string };
 
   private loadListeners: Set<(isLoaded: boolean) => void> = new Set();
   private changeListeners: Set<(elements: CanvasElement[]) => void> = new Set();
+  private commentListeners: Set<(comments: CommentThread[]) => void> = new Set();
   private boardNameListeners: Set<(name: string) => void> = new Set();
   private collaboratorListeners: Set<(collaborators: Collaborator[]) => void> = new Set();
   private connectionListeners: Set<(isConnected: boolean) => void> = new Set();
@@ -50,6 +52,12 @@ class WhiteboardService {
     // Generate or retrieve persistent user identity for this browser
     const storedName = localStorage.getItem('collab_user_name');
     const storedColor = localStorage.getItem('collab_user_color');
+    let storedId = localStorage.getItem('collab_user_id');
+
+    if (!storedId) {
+      storedId = crypto.randomUUID();
+      localStorage.setItem('collab_user_id', storedId);
+    }
 
     const name = storedName || USER_NAMES[Math.floor(Math.random() * USER_NAMES.length)];
     const color = storedColor || USER_COLORS[Math.floor(Math.random() * USER_COLORS.length)];
@@ -57,7 +65,7 @@ class WhiteboardService {
     localStorage.setItem('collab_user_name', name);
     localStorage.setItem('collab_user_color', color);
 
-    this.localUser = { name, color };
+    this.localUser = { id: storedId, name, color };
   }
 
   /**
@@ -69,7 +77,6 @@ class WhiteboardService {
 
     if (!boardId || boardId.trim() === '') {
       boardId = crypto.randomUUID();
-      // Mark this board as locally created so it can get welcome items if empty
       sessionStorage.setItem(`is_creator_${boardId}`, 'true');
       this.updateUrl(boardId);
     }
@@ -113,8 +120,9 @@ class WhiteboardService {
     // 1. Create Yjs Document
     this.doc = new Y.Doc();
 
-    // 2. Obtain shared map for canvas elements & metadata
+    // 2. Obtain shared maps for canvas elements, comments & metadata
     this.elementsMap = this.doc.getMap<CanvasElement>('canvas-elements');
+    this.commentsMap = this.doc.getMap<CommentThread>('canvas-comments');
     this.metaMap = this.doc.getMap('board-metadata');
 
     // 3. Connect local persistence with IndexedDB
@@ -126,13 +134,13 @@ class WhiteboardService {
       this.isLoaded = true;
       this.notifyLoadListeners(true);
       this.notifyChangeListeners();
+      this.notifyCommentListeners();
       this.notifyBoardNameListeners();
     });
 
     // 4. Connect Real-time WebSocket Provider for instant live multi-user collaboration
     const roomName = `collab-board-v3-${boardId}`;
     
-    // Connect to reliable public WebSocket sync relay
     this.wsProvider = new WebsocketProvider(
       'wss://demos.yjs.dev/ws',
       roomName,
@@ -157,6 +165,7 @@ class WhiteboardService {
         this.isLoaded = true;
         this.notifyLoadListeners(true);
         this.notifyChangeListeners();
+        this.notifyCommentListeners();
         this.notifyBoardNameListeners();
       }
     });
@@ -174,6 +183,10 @@ class WhiteboardService {
     // 6. Subscribe to CRDT state changes
     this.elementsMap.observe(() => {
       this.notifyChangeListeners();
+    });
+
+    this.commentsMap.observe(() => {
+      this.notifyCommentListeners();
     });
 
     this.metaMap.observe(() => {
@@ -240,7 +253,7 @@ class WhiteboardService {
     }
   }
 
-  public getLocalUser(): { name: string; color: string } {
+  public getLocalUser(): { name: string; color: string; id: string } {
     return this.localUser;
   }
 
@@ -289,6 +302,7 @@ class WhiteboardService {
       this.doc = null;
     }
     this.elementsMap = null;
+    this.commentsMap = null;
     this.metaMap = null;
     this.isLoaded = false;
     this.isConnected = false;
@@ -341,6 +355,131 @@ class WhiteboardService {
   }
 
   /**
+   * Toggle emoji reaction on an element
+   */
+  public toggleReaction(elementId: string, emoji: string): void {
+    if (!this.doc || !this.elementsMap) return;
+
+    const element = this.elementsMap.get(elementId);
+    if (!element) return;
+
+    const currentReactions = Array.isArray(element.reactions) ? [...element.reactions] : [];
+    const userId = this.localUser.id;
+    const existingIndex = currentReactions.findIndex(
+      (r) => r.emoji === emoji && r.userId === userId
+    );
+
+    let updatedReactions: ReactionItem[];
+    if (existingIndex >= 0) {
+      // Remove reaction
+      updatedReactions = currentReactions.filter((_, idx) => idx !== existingIndex);
+    } else {
+      // Add reaction
+      updatedReactions = [
+        ...currentReactions,
+        {
+          id: crypto.randomUUID(),
+          emoji,
+          userId,
+          userName: this.localUser.name,
+          createdAt: Date.now(),
+        },
+      ];
+    }
+
+    this.setElement({
+      ...element,
+      reactions: updatedReactions,
+    });
+  }
+
+  /**
+   * Threaded Comments Management
+   */
+  public getComments(): CommentThread[] {
+    if (!this.commentsMap) return [];
+    const comments: CommentThread[] = [];
+    this.commentsMap.forEach((comment) => {
+      if (comment && comment.id) {
+        comments.push(comment);
+      }
+    });
+    return comments.sort((a, b) => a.createdAt - b.createdAt);
+  }
+
+  public addComment(elementId: string, text: string): string | null {
+    if (!this.doc || !this.commentsMap) return null;
+    const trimmed = text.trim();
+    if (!trimmed) return null;
+
+    const commentId = crypto.randomUUID();
+    const newComment: CommentThread = {
+      id: commentId,
+      elementId,
+      author: this.localUser.name,
+      authorColor: this.localUser.color,
+      text: trimmed,
+      createdAt: Date.now(),
+      replies: [],
+      resolved: false,
+    };
+
+    this.doc.transact(() => {
+      this.commentsMap!.set(commentId, newComment);
+    }, 'local');
+
+    return commentId;
+  }
+
+  public addReply(commentId: string, text: string): void {
+    if (!this.doc || !this.commentsMap) return;
+    const trimmed = text.trim();
+    if (!trimmed) return;
+
+    const thread = this.commentsMap.get(commentId);
+    if (!thread) return;
+
+    const newReply: CommentReply = {
+      id: crypto.randomUUID(),
+      author: this.localUser.name,
+      authorColor: this.localUser.color,
+      text: trimmed,
+      createdAt: Date.now(),
+    };
+
+    const updatedThread: CommentThread = {
+      ...thread,
+      replies: [...(thread.replies || []), newReply],
+    };
+
+    this.doc.transact(() => {
+      this.commentsMap!.set(commentId, updatedThread);
+    }, 'local');
+  }
+
+  public deleteComment(commentId: string): void {
+    if (!this.doc || !this.commentsMap) return;
+    this.doc.transact(() => {
+      this.commentsMap!.delete(commentId);
+    }, 'local');
+  }
+
+  public toggleResolveComment(commentId: string): void {
+    if (!this.doc || !this.commentsMap) return;
+    const thread = this.commentsMap.get(commentId);
+    if (!thread) return;
+
+    const updatedThread: CommentThread = {
+      ...thread,
+      resolved: !thread.resolved,
+    };
+
+    this.doc.transact(() => {
+      this.commentsMap!.set(commentId, updatedThread);
+    }, 'local');
+  }
+
+  /**
    * Remove an element by ID.
    */
   public deleteElement(id: string, origin: string = 'local'): void {
@@ -373,6 +512,10 @@ class WhiteboardService {
     this.doc.transact(() => {
       const keys = Array.from(this.elementsMap!.keys());
       keys.forEach((key) => this.elementsMap!.delete(key));
+      if (this.commentsMap) {
+        const commentKeys = Array.from(this.commentsMap.keys());
+        commentKeys.forEach((key) => this.commentsMap!.delete(key));
+      }
       this.metaMap?.set('initialized', true);
     }, origin);
   }
@@ -429,6 +572,17 @@ class WhiteboardService {
   }
 
   /**
+   * Subscribe to comments changes.
+   */
+  public subscribeComments(listener: (comments: CommentThread[]) => void): () => void {
+    this.commentListeners.add(listener);
+    listener(this.getComments());
+    return () => {
+      this.commentListeners.delete(listener);
+    };
+  }
+
+  /**
    * Subscribe to loading/sync state.
    */
   public subscribeLoading(listener: (isLoaded: boolean) => void): () => void {
@@ -475,6 +629,11 @@ class WhiteboardService {
   private notifyChangeListeners(): void {
     const elements = this.getElements();
     this.changeListeners.forEach((listener) => listener(elements));
+  }
+
+  private notifyCommentListeners(): void {
+    const comments = this.getComments();
+    this.commentListeners.forEach((listener) => listener(comments));
   }
 
   private notifyBoardNameListeners(): void {

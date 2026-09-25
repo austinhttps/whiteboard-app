@@ -1,11 +1,12 @@
 import { useEffect, useState, useCallback } from 'react';
 import { whiteboardService } from '../services/yjsDoc';
-import { CanvasElement, Collaborator } from '../types/whiteboard';
+import { CanvasElement, Collaborator, CommentThread } from '../types/whiteboard';
 
 export function useWhiteboard() {
   const [boardId, setBoardId] = useState<string>(() => whiteboardService.getOrCreateBoardId());
   const [boardName, setBoardNameState] = useState<string>('New Whiteboard');
   const [elements, setElements] = useState<CanvasElement[]>([]);
+  const [comments, setComments] = useState<CommentThread[]>([]);
   const [isLoaded, setIsLoaded] = useState<boolean>(false);
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
@@ -38,6 +39,10 @@ export function useWhiteboard() {
       setCanRedo(whiteboardService.canRedo());
     });
 
+    const unsubscribeComments = whiteboardService.subscribeComments((updatedComments) => {
+      setComments(updatedComments);
+    });
+
     // Listen for browser popstate (back/forward button)
     const handlePopState = () => {
       const newBoardId = whiteboardService.getOrCreateBoardId();
@@ -51,6 +56,7 @@ export function useWhiteboard() {
       unsubscribeCollaborators();
       unsubscribeBoardName();
       unsubscribeElements();
+      unsubscribeComments();
       window.removeEventListener('popstate', handlePopState);
     };
   }, [boardId]);
@@ -95,6 +101,26 @@ export function useWhiteboard() {
     setCanRedo(whiteboardService.canRedo());
   }, []);
 
+  const toggleReaction = useCallback((elementId: string, emoji: string) => {
+    whiteboardService.toggleReaction(elementId, emoji);
+  }, []);
+
+  const addComment = useCallback((elementId: string, text: string) => {
+    return whiteboardService.addComment(elementId, text);
+  }, []);
+
+  const addReply = useCallback((commentId: string, text: string) => {
+    whiteboardService.addReply(commentId, text);
+  }, []);
+
+  const deleteComment = useCallback((commentId: string) => {
+    whiteboardService.deleteComment(commentId);
+  }, []);
+
+  const toggleResolveComment = useCallback((commentId: string) => {
+    whiteboardService.toggleResolveComment(commentId);
+  }, []);
+
   const clearAll = useCallback(() => {
     whiteboardService.clearAll();
     setCanUndo(whiteboardService.canUndo());
@@ -128,6 +154,7 @@ export function useWhiteboard() {
     boardName,
     setBoardName,
     elements,
+    comments,
     isLoaded,
     isConnected,
     collaborators,
@@ -140,6 +167,11 @@ export function useWhiteboard() {
     setBatchElements,
     deleteElement,
     deleteElements,
+    toggleReaction,
+    addComment,
+    addReply,
+    deleteComment,
+    toggleResolveComment,
     clearAll,
     undo,
     redo,

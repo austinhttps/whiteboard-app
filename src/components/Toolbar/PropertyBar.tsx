@@ -4,6 +4,8 @@ import {
   Copy,
   ArrowUp,
   ArrowDown,
+  Smile,
+  MessageSquare,
 } from 'lucide-react';
 import {
   CanvasElement,
@@ -23,6 +25,9 @@ interface PropertyBarProps {
   onDeleteSelected: () => void;
   onDuplicateSelected: () => void;
   onReorderSelected: (direction: 'up' | 'down') => void;
+  onOpenEmojiPicker?: (elementId: string, position: { x: number; y: number }) => void;
+  onOpenComments?: (elementId: string) => void;
+  commentCount?: number;
 }
 
 const STROKE_COLORS = [
@@ -77,6 +82,9 @@ export const PropertyBar: React.FC<PropertyBarProps> = ({
   onDeleteSelected,
   onDuplicateSelected,
   onReorderSelected,
+  onOpenEmojiPicker,
+  onOpenComments,
+  commentCount = 0,
 }) => {
   const isDark = theme === 'dark';
   const hasSelection = selectedElements.length > 0;
@@ -140,6 +148,41 @@ export const PropertyBar: React.FC<PropertyBarProps> = ({
           >
             <ArrowDown className="w-3.5 h-3.5" />
           </button>
+
+          {/* Emoji Reaction button */}
+          {primarySelected && onOpenEmojiPicker && (
+            <button
+              onClick={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                onOpenEmojiPicker(primarySelected.id, { x: rect.left, y: rect.bottom + 6 });
+              }}
+              title="Add Emoji Reaction"
+              className={`p-1 text-amber-400 hover:text-amber-300 rounded-lg transition-all ${
+                isDark ? 'bg-slate-800 hover:bg-slate-700' : 'bg-slate-100 hover:bg-slate-200'
+              }`}
+            >
+              <Smile className="w-3.5 h-3.5" />
+            </button>
+          )}
+
+          {/* Comment Thread button */}
+          {primarySelected && onOpenComments && (
+            <button
+              onClick={() => onOpenComments(primarySelected.id)}
+              title="Open Comments Thread"
+              className={`flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-lg transition-all ${
+                commentCount > 0
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : isDark
+                  ? 'text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700'
+                  : 'text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200'
+              }`}
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              {commentCount > 0 && <span className="text-[10px] font-bold">{commentCount}</span>}
+            </button>
+          )}
+
           <button
             onClick={onDeleteSelected}
             title="Delete (Del)"

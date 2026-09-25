@@ -1,11 +1,12 @@
 import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { Stage, Layer, Transformer, Rect as KonvaRect, Line as KonvaLine, Circle as KonvaCircle, Arrow as KonvaArrow } from 'react-konva';
 import Konva from 'konva';
-import { CanvasElement, ToolType, ToolProperties, GridType, StickyColor, Collaborator, ThemeMode, ConnectorPoint } from '../../types/whiteboard';
+import { CanvasElement, ToolType, ToolProperties, GridType, StickyColor, Collaborator, ThemeMode, ConnectorPoint, CommentThread } from '../../types/whiteboard';
 import { ElementRenderer } from './ElementRenderer';
 import { GridBackground } from './GridBackground';
 import { PeerCursors } from './PeerCursors';
 import { ConnectorAnchors } from './ConnectorAnchors';
+import { ObjectOverlayBadges } from './ObjectOverlayBadges';
 import { ContextMenu } from '../ContextMenu/ContextMenu';
 import { exportStageToPNG } from '../../utils/exportUtils';
 import {
@@ -16,6 +17,8 @@ import {
 
 interface WhiteboardProps {
   elements: CanvasElement[];
+  comments: CommentThread[];
+  localUser: { name: string; color: string; id: string };
   currentTool: ToolType;
   toolProperties: ToolProperties;
   gridType: GridType;
@@ -36,6 +39,9 @@ interface WhiteboardProps {
   onPasteElements: (point?: { x: number; y: number }) => void;
   collaborators: Collaborator[];
   onUpdateCursor: (pos: { x: number; y: number } | null) => void;
+  onToggleReaction: (elementId: string, emoji: string) => void;
+  onOpenEmojiPicker: (elementId: string, position: { x: number; y: number }) => void;
+  onOpenComments: (elementId: string) => void;
 }
 
 interface InlineEditingState {
@@ -103,6 +109,8 @@ function getElementBounds(el: CanvasElement): { minX: number; minY: number; maxX
 
 export const Whiteboard: React.FC<WhiteboardProps> = ({
   elements,
+  comments,
+  localUser,
   currentTool,
   toolProperties,
   gridType,
@@ -123,6 +131,9 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
   onPasteElements,
   collaborators,
   onUpdateCursor,
+  onToggleReaction,
+  onOpenEmojiPicker,
+  onOpenComments,
 }) => {
   const [stagePos, setStagePos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [stageScale, setStageScale] = useState<number>(1);
@@ -1225,6 +1236,20 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
         </Layer>
       </Stage>
 
+      {/* Floating Badges for Object Reactions & Comment Counts */}
+      <ObjectOverlayBadges
+        elements={elements}
+        comments={comments}
+        stagePos={stagePos}
+        stageScale={stageScale}
+        theme={theme}
+        localUserId={localUser.id}
+        selectedIds={selectedIds}
+        onToggleReaction={onToggleReaction}
+        onOpenEmojiPicker={onOpenEmojiPicker}
+        onOpenComments={onOpenComments}
+      />
+
       {/* Custom Context Menu */}
       {contextMenu && (
         <ContextMenu
@@ -1278,6 +1303,8 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
           onCut={onCutElements}
           onPaste={onPasteElements}
           hasClipboard={clipboard.length > 0}
+          onToggleReaction={onToggleReaction}
+          onOpenComments={onOpenComments}
         />
       )}
 
