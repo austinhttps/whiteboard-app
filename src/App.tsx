@@ -8,6 +8,12 @@ import { Header } from './components/Header/Header';
 import { ShortcutsModal } from './components/Modals/ShortcutsModal';
 import { ToolType, ToolProperties, GridType, CanvasElement } from './types/whiteboard';
 
+/**
+ * CollabBoard Root Application Component
+ * 
+ * Manages active canvas tools, contextual property bar options,
+ * selection states, and binds UI interactions to the Yjs CRDT store.
+ */
 export function App() {
   const {
     boardId,
