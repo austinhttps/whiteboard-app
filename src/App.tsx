@@ -6,13 +6,13 @@ import { MainToolbar } from './components/Toolbar/MainToolbar';
 import { PropertyBar } from './components/Toolbar/PropertyBar';
 import { Header } from './components/Header/Header';
 import { ShortcutsModal } from './components/Modals/ShortcutsModal';
-import { ToolType, ToolProperties, GridType, CanvasElement } from './types/whiteboard';
+import { ToolType, ToolProperties, GridType, CanvasElement, ThemeMode } from './types/whiteboard';
 
 /**
  * CollabBoard Root Application Component
  * 
  * Manages active canvas tools, contextual property bar options,
- * selection states, clipboard, peer awareness, and binds UI interactions to the Yjs CRDT store.
+ * selection states, clipboard, peer awareness, theme mode, and binds UI interactions to the Yjs CRDT store.
  */
 export function App() {
   const {
@@ -40,6 +40,34 @@ export function App() {
     setBoardInitialized,
     getNextZIndex,
   } = useWhiteboard();
+
+  // Client-side theme mode (dark / light) persisted in localStorage
+  const [theme, setTheme] = useState<ThemeMode>(() => {
+    const saved = localStorage.getItem('collab_theme');
+    if (saved === 'light' || saved === 'dark') {
+      return saved;
+    }
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches
+      ? 'light'
+      : 'dark';
+  });
+
+  const toggleTheme = useCallback(() => {
+    setTheme((prev) => {
+      const next = prev === 'dark' ? 'light' : 'dark';
+      localStorage.setItem('collab_theme', next);
+      return next;
+    });
+  }, []);
+
+  // Synchronize document HTML class for Tailwind dark mode
+  useEffect(() => {
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [theme]);
 
   const [currentTool, setCurrentTool] = useState<ToolType>('select');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -363,8 +391,12 @@ export function App() {
     [selectedElements, setElement]
   );
 
+  const isDark = theme === 'dark';
+
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-slate-950 font-sans">
+    <div className={`relative w-screen h-screen overflow-hidden font-sans transition-colors ${
+      isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'
+    }`}>
       {/* Header */}
       <Header
         boardId={boardId}
@@ -375,6 +407,8 @@ export function App() {
         collaborators={collaborators}
         localUser={localUser}
         onUpdateUserName={updateUserName}
+        theme={theme}
+        onToggleTheme={toggleTheme}
         canUndo={canUndo}
         canRedo={canRedo}
         gridType={gridType}
@@ -393,6 +427,7 @@ export function App() {
       <PropertyBar
         currentTool={currentTool}
         toolProperties={toolProperties}
+        theme={theme}
         onUpdateProperties={(props) => setToolProperties((prev) => ({ ...prev, ...props }))}
         selectedElements={selectedElements}
         onUpdateSelected={handleUpdateSelected}
@@ -407,6 +442,7 @@ export function App() {
         currentTool={currentTool}
         toolProperties={toolProperties}
         gridType={gridType}
+        theme={theme}
         onSetTool={setCurrentTool}
         onSetElement={setElement}
         onSetBatchElements={setBatchElements}
@@ -428,6 +464,7 @@ export function App() {
       {/* Main Toolbar */}
       <MainToolbar
         currentTool={currentTool}
+        theme={theme}
         onSelectTool={setCurrentTool}
         onUploadImage={handleUploadImage}
       />

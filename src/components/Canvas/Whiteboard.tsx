@@ -1,18 +1,25 @@
-import React, { useRef, useState, useEffect, useCallback } from 'react';
+import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { Stage, Layer, Transformer, Rect as KonvaRect, Line as KonvaLine, Circle as KonvaCircle, Arrow as KonvaArrow } from 'react-konva';
 import Konva from 'konva';
-import { CanvasElement, ToolType, ToolProperties, GridType, StickyColor, Collaborator } from '../../types/whiteboard';
+import { CanvasElement, ToolType, ToolProperties, GridType, StickyColor, Collaborator, ThemeMode, ConnectorPoint } from '../../types/whiteboard';
 import { ElementRenderer } from './ElementRenderer';
 import { GridBackground } from './GridBackground';
 import { PeerCursors } from './PeerCursors';
+import { ConnectorAnchors } from './ConnectorAnchors';
 import { ContextMenu } from '../ContextMenu/ContextMenu';
 import { exportStageToPNG } from '../../utils/exportUtils';
+import {
+  getAllConnectorPoints,
+  findNearestConnectorPoint,
+  updateAttachedConnectors,
+} from '../../utils/connectorUtils';
 
 interface WhiteboardProps {
   elements: CanvasElement[];
   currentTool: ToolType;
   toolProperties: ToolProperties;
   gridType: GridType;
+  theme: ThemeMode;
   onSetTool: (tool: ToolType) => void;
   onSetElement: (element: CanvasElement) => void;
   onSetBatchElements: (elements: CanvasElement[]) => void;
@@ -49,9 +56,10 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
   currentTool,
   toolProperties,
   gridType,
+  theme,
   onSetTool,
   onSetElement,
-  onSetBatchElements: _onSetBatchElements,
+  onSetBatchElements,
   onDeleteElement,
   onDeleteElements,
   getNextZIndex,
@@ -81,6 +89,9 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
   const isDrawing = useRef<boolean>(false);
   const [newShape, setNewShape] = useState<CanvasElement | null>(null);
 
+  // Active connector snap target
+  const [activeSnapAnchor, setActiveSnapAnchor] = useState<ConnectorPoint | null>(null);
+
   // Selection box state
   const [selectionBox, setSelectionBox] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
 
@@ -98,6 +109,14 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
 
   const transformerRef = useRef<Konva.Transformer>(null);
   const layerRef = useRef<Konva.Layer>(null);
+
+  // Calculate connector anchors
+  const allConnectorAnchors = useMemo(() => {
+    return getAllConnectorPoints(elements);
+  }, [elements]);
+
+  const showConnectorAnchors =
+    currentTool === 'arrow' || currentTool === 'line' || isDrawing.current;
 
   // Window resize handler
   useEffect(() => {
@@ -408,6 +427,11 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
     isDrawing.current = true;
     const nextZ = getNextZIndex();
 
+    // Check if starting arrow/line on a connector anchor
+    const snapStart = findNearestConnectorPoint(point, elements);
+    const startX = snapStart ? snapStart.x : point.x;
+    const startY = snapStart ? snapStart.y : point.y;
+
     if (currentTool === 'pen') {
       setNewShape({
         id: crypto.randomUUID(),
@@ -453,9 +477,10 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
       setNewShape({
         id: crypto.randomUUID(),
         type: 'arrow',
-        points: [point.x, point.y, point.x, point.y],
+        points: [startX, startY, startX, startY],
         color: toolProperties.strokeColor,
         strokeWidth: toolProperties.strokeWidth,
+        startBinding: snapStart ? { elementId: snapStart.elementId, anchor: snapStart.anchor } : undefined,
         x: 0,
         y: 0,
         zIndex: nextZ,
@@ -465,9 +490,10 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
       setNewShape({
         id: crypto.randomUUID(),
         type: 'line',
-        points: [point.x, point.y, point.x, point.y],
+        points: [startX, startY, startX, startY],
         color: toolProperties.strokeColor,
         strokeWidth: toolProperties.strokeWidth,
+        startBinding: snapStart ? { elementId: snapStart.elementId, anchor: snapStart.anchor } : undefined,
         x: 0,
         y: 0,
         zIndex: nextZ,
@@ -494,6 +520,22 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
           y: pointer.y - panStart.y,
         });
       }
+      return;
+    }
+
+    // Check connector snap when drawing arrow/line
+    if (isDrawing.current && newShape && (newShape.type === 'arrow' || newShape.type === 'line')) {
+      const snap = findNearestConnectorPoint(point, elements);
+      setActiveSnapAnchor(snap);
+
+      const targetX = snap ? snap.x : point.x;
+      const targetY = snap ? snap.y : point.y;
+
+      setNewShape({
+        ...newShape,
+        points: [newShape.points[0], newShape.points[1], targetX, targetY],
+        endBinding: snap ? { elementId: snap.elementId, anchor: snap.anchor } : undefined,
+      });
       return;
     }
 
@@ -526,16 +568,13 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
         radiusX: Math.max(2, rx),
         radiusY: Math.max(2, ry),
       });
-    } else if (newShape.type === 'arrow' || newShape.type === 'line') {
-      setNewShape({
-        ...newShape,
-        points: [newShape.points[0], newShape.points[1], point.x, point.y],
-      });
     }
   };
 
   // Mouse Up / Touch End
   const handleMouseUp = () => {
+    setActiveSnapAnchor(null);
+
     if (isPanning) {
       setIsPanning(false);
       return;
@@ -623,16 +662,24 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
     }
   };
 
-  // Element attribute update (drag/transform)
+  // Element attribute update (drag/transform) + connector auto-updates!
   const handleElementChange = (id: string, newAttrs: Partial<CanvasElement>) => {
     const existing = elements.find((el) => el.id === id);
     if (!existing) return;
 
-    onSetElement({
+    const updated = {
       ...existing,
       ...newAttrs,
       updatedAt: Date.now(),
-    } as CanvasElement);
+    } as CanvasElement;
+
+    onSetElement(updated);
+
+    // Update any connected arrows / lines
+    const attachedUpdated = updateAttachedConnectors(updated, elements);
+    if (attachedUpdated.length > 0) {
+      onSetBatchElements(attachedUpdated);
+    }
   };
 
   // Inline editing initiation
@@ -947,9 +994,13 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
     cursorStyle = 'cell';
   }
 
+  const isDark = theme === 'dark';
+
   return (
     <div
-      className="relative w-full h-full overflow-hidden select-none bg-slate-950"
+      className={`relative w-full h-full overflow-hidden select-none ${
+        isDark ? 'bg-slate-950' : 'bg-slate-50'
+      }`}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
       onContextMenu={handleContextMenu}
@@ -982,6 +1033,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
             stageX={stagePos.x}
             stageY={stagePos.y}
             gridType={gridType}
+            theme={theme}
           />
 
           {/* Render All Yjs Canvas Elements */}
@@ -1053,6 +1105,13 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
               )}
             </>
           )}
+
+          {/* Magnetic Shape Connection Points */}
+          <ConnectorAnchors
+            anchors={allConnectorAnchors}
+            activeAnchor={activeSnapAnchor}
+            visible={showConnectorAnchors}
+          />
 
           {/* Drag Selection Box */}
           {selectionBox && (
@@ -1176,7 +1235,6 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
               if (e.key === 'Escape') {
                 commitInlineEdit();
               }
-              // For Text element, Enter commits unless Shift+Enter
               if (editingItem.type === 'text' && e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 commitInlineEdit();
@@ -1186,11 +1244,11 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
             className={`w-full h-full resize-none outline-none border-2 border-indigo-500 rounded p-2 bg-transparent leading-relaxed ${
               editingItem.type === 'sticky'
                 ? "font-['Caveat'] font-semibold text-slate-900"
-                : 'font-sans font-medium text-slate-100'
+                : isDark ? 'font-sans font-medium text-slate-100' : 'font-sans font-medium text-slate-900'
             }`}
             style={{
               fontSize: `${Math.max(12, editingItem.fontSize)}px`,
-              color: editingItem.type === 'sticky' ? '#0f172a' : editingItem.fill || '#f8fafc',
+              color: editingItem.type === 'sticky' ? '#0f172a' : editingItem.fill || (isDark ? '#f8fafc' : '#0f172a'),
             }}
           />
         </div>

@@ -11,6 +11,14 @@ export type ToolType =
   | 'eraser';
 
 export type StickyColor = 'yellow' | 'pink' | 'blue' | 'green' | 'purple' | 'orange';
+export type ThemeMode = 'dark' | 'light';
+
+export type ConnectionAnchor = 'top' | 'right' | 'bottom' | 'left';
+
+export interface ElementBinding {
+  elementId: string;
+  anchor: ConnectionAnchor;
+}
 
 export interface BaseElement {
   id: string;
@@ -55,6 +63,8 @@ export interface ArrowElement extends BaseElement {
   strokeWidth: number;
   pointerLength?: number;
   pointerWidth?: number;
+  startBinding?: ElementBinding;
+  endBinding?: ElementBinding;
 }
 
 export interface LineElement extends BaseElement {
@@ -62,6 +72,8 @@ export interface LineElement extends BaseElement {
   points: number[];
   color: string;
   strokeWidth: number;
+  startBinding?: ElementBinding;
+  endBinding?: ElementBinding;
 }
 
 export interface StickyElement extends BaseElement {
@@ -99,12 +111,6 @@ export type CanvasElement =
   | TextElement
   | ImageElement;
 
-export interface CanvasState {
-  scale: number;
-  x: number;
-  y: number;
-}
-
 export interface ToolProperties {
   strokeColor: string;
   fillColor: string;
@@ -125,3 +131,9 @@ export interface Collaborator {
   };
 }
 
+export interface ConnectorPoint {
+  x: number;
+  y: number;
+  anchor: ConnectionAnchor;
+  elementId: string;
+}

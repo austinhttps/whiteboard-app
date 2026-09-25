@@ -1,6 +1,6 @@
 import React from 'react';
 import { Group, Circle, Line, Rect } from 'react-konva';
-import { GridType } from '../../types/whiteboard';
+import { GridType, ThemeMode } from '../../types/whiteboard';
 
 interface GridBackgroundProps {
   width: number;
@@ -9,6 +9,7 @@ interface GridBackgroundProps {
   stageX: number;
   stageY: number;
   gridType: GridType;
+  theme?: ThemeMode;
 }
 
 export const GridBackground: React.FC<GridBackgroundProps> = ({
@@ -18,7 +19,13 @@ export const GridBackground: React.FC<GridBackgroundProps> = ({
   stageX,
   stageY,
   gridType,
+  theme = 'dark',
 }) => {
+  const isDark = theme === 'dark';
+  const bgColor = isDark ? '#090d16' : '#f8fafc';
+  const dotColor = isDark ? '#334155' : '#94a3b8';
+  const lineColor = isDark ? '#1e293b' : '#e2e8f0';
+
   if (gridType === 'none') {
     return (
       <Rect
@@ -26,7 +33,7 @@ export const GridBackground: React.FC<GridBackgroundProps> = ({
         y={-stageY / scale}
         width={width / scale}
         height={height / scale}
-        fill="#090d16"
+        fill={bgColor}
         listening={false}
       />
     );
@@ -45,7 +52,7 @@ export const GridBackground: React.FC<GridBackgroundProps> = ({
       y={-stageY / scale}
       width={width / scale}
       height={height / scale}
-      fill="#090d16"
+      fill={bgColor}
       listening={false}
     />
   );
@@ -62,8 +69,8 @@ export const GridBackground: React.FC<GridBackgroundProps> = ({
             x={x}
             y={y}
             radius={dotRadius}
-            fill="#334155"
-            opacity={0.6}
+            fill={dotColor}
+            opacity={isDark ? 0.6 : 0.45}
             listening={false}
           />
         );
@@ -85,9 +92,9 @@ export const GridBackground: React.FC<GridBackgroundProps> = ({
       <Line
         key={`vline-${x}`}
         points={[x, startY, x, endY]}
-        stroke="#1e293b"
+        stroke={lineColor}
         strokeWidth={1 / scale}
-        opacity={0.7}
+        opacity={isDark ? 0.7 : 0.6}
         listening={false}
       />
     );
@@ -98,9 +105,9 @@ export const GridBackground: React.FC<GridBackgroundProps> = ({
       <Line
         key={`hline-${y}`}
         points={[startX, y, endX, y]}
-        stroke="#1e293b"
+        stroke={lineColor}
         strokeWidth={1 / scale}
-        opacity={0.7}
+        opacity={isDark ? 0.7 : 0.6}
         listening={false}
       />
     );
