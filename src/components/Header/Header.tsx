@@ -8,19 +8,24 @@ import {
   Trash,
   HelpCircle,
   Check,
-  Sparkles,
   Grid,
   FileJson,
   Upload,
   Layers,
+  User,
+  Radio,
 } from 'lucide-react';
 import Konva from 'konva';
-import { GridType, CanvasElement } from '../../types/whiteboard';
+import { GridType, CanvasElement, Collaborator } from '../../types/whiteboard';
 import { exportStageToPNG, exportBoardToJson, importBoardFromJson } from '../../utils/exportUtils';
 
 interface HeaderProps {
   boardId: string;
   isLoaded: boolean;
+  isConnected: boolean;
+  collaborators: Collaborator[];
+  localUser: { name: string; color: string };
+  onUpdateUserName: (name: string) => void;
   canUndo: boolean;
   canRedo: boolean;
   gridType: GridType;
@@ -37,7 +42,11 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({
   boardId,
-  isLoaded,
+  isLoaded: _isLoaded,
+  isConnected,
+  collaborators,
+  localUser,
+  onUpdateUserName,
   canUndo,
   canRedo,
   gridType,
@@ -54,13 +63,15 @@ export const Header: React.FC<HeaderProps> = ({
   const [copied, setCopied] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [showUserModal, setShowUserModal] = useState(false);
+  const [tempUserName, setTempUserName] = useState(localUser.name);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleCopyLink = () => {
     const url = window.location.href;
     navigator.clipboard.writeText(url);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setTimeout(() => setCopied(false), 2500);
   };
 
   const handleExportPNG = (pixelRatio: number, scope: 'viewport' | 'all') => {
@@ -92,6 +103,8 @@ export const Header: React.FC<HeaderProps> = ({
     }
   };
 
+  const totalUsersOnline = collaborators.length + 1;
+
   return (
     <header className="fixed top-0 left-0 right-0 z-30 flex items-center justify-between px-4 py-2.5 bg-slate-900/80 backdrop-blur-md border-b border-slate-800">
       {/* Left: Brand & Board Management */}
@@ -104,10 +117,10 @@ export const Header: React.FC<HeaderProps> = ({
             <h1 className="text-sm font-bold text-slate-100 flex items-center gap-1.5">
               CollabBoard
               <span className="text-[10px] uppercase tracking-wider bg-indigo-500/20 text-indigo-300 font-semibold px-1.5 py-0.5 rounded border border-indigo-500/30">
-                CRDT
+                Live CRDT
               </span>
             </h1>
-            <p className="text-[11px] text-slate-400">Marketing & School Studio</p>
+            <p className="text-[11px] text-slate-400">Real-time Marketing & School Studio</p>
           </div>
         </div>
 
@@ -125,15 +138,15 @@ export const Header: React.FC<HeaderProps> = ({
                 ? 'bg-emerald-600 text-white'
                 : 'bg-indigo-600/80 hover:bg-indigo-600 text-white shadow-sm'
             }`}
-            title="Copy board URL to share"
+            title="Copy board URL to share and collaborate live"
           >
             {copied ? (
               <>
-                <Check className="w-3.5 h-3.5" /> Copied!
+                <Check className="w-3.5 h-3.5" /> Link Copied!
               </>
             ) : (
               <>
-                <Share2 className="w-3.5 h-3.5" /> Share
+                <Share2 className="w-3.5 h-3.5" /> Share Board
               </>
             )}
           </button>
@@ -148,28 +161,48 @@ export const Header: React.FC<HeaderProps> = ({
           <Plus className="w-3.5 h-3.5" /> New Board
         </button>
 
-        {/* Persistence & Multiplayer Status Badge */}
+        {/* Live WebRTC Sync Status & Collaborators */}
         <div className="hidden lg:flex items-center gap-2">
+          {/* Live Status Indicator */}
           <span
-            className={`flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full border ${
-              isLoaded
-                ? 'bg-emerald-950/40 text-emerald-400 border-emerald-800/50'
-                : 'bg-amber-950/40 text-amber-400 border-amber-800/50 animate-pulse'
+            className={`flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-0.5 rounded-full border ${
+              isConnected
+                ? 'bg-emerald-950/50 text-emerald-300 border-emerald-800/60'
+                : 'bg-indigo-950/50 text-indigo-300 border-indigo-800/60'
             }`}
+            title="Real-time WebRTC Peer-to-Peer CRDT Sync is active"
           >
-            <span
-              className={`w-1.5 h-1.5 rounded-full ${isLoaded ? 'bg-emerald-400' : 'bg-amber-400'}`}
-            />
-            {isLoaded ? 'IndexedDB Saved' : 'Loading State...'}
+            <Radio className={`w-3 h-3 ${isConnected ? 'text-emerald-400 animate-pulse' : 'text-indigo-400'}`} />
+            {isConnected ? `Live Sync (${totalUsersOnline} Online)` : 'Connecting P2P...'}
           </span>
 
-          <span
-            className="flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-indigo-950/40 text-indigo-300 border border-indigo-800/50"
-            title="Yjs CRDT architecture is active. Ready to plug in y-websocket or y-webrtc."
-          >
-            <Sparkles className="w-3 h-3 text-indigo-400" />
-            Multiplayer Ready
-          </span>
+          {/* User & Peer Avatars */}
+          <div className="flex items-center -space-x-1.5 overflow-hidden">
+            {/* Self Avatar */}
+            <button
+              onClick={() => {
+                setTempUserName(localUser.name);
+                setShowUserModal(true);
+              }}
+              className="relative group w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white ring-2 ring-slate-900 shadow-sm transition-transform hover:scale-110"
+              style={{ backgroundColor: localUser.color }}
+              title={`You: ${localUser.name} (Click to change)`}
+            >
+              {localUser.name.charAt(0).toUpperCase()}
+            </button>
+
+            {/* Remote Collaborators Avatars */}
+            {collaborators.map((collab) => (
+              <div
+                key={collab.clientId}
+                className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white ring-2 ring-slate-900 shadow-sm"
+                style={{ backgroundColor: collab.color }}
+                title={`${collab.name} (Online)`}
+              >
+                {collab.name.charAt(0).toUpperCase()}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -308,7 +341,7 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-sm w-full shadow-2xl">
             <h3 className="text-base font-bold text-white mb-2">Clear Entire Whiteboard?</h3>
             <p className="text-xs text-slate-400 mb-6">
-              This will remove all shapes, notes, and drawings on this board. You can still undo this action.
+              This will remove all shapes, notes, and drawings on this board for everyone. You can still undo this action.
             </p>
             <div className="flex items-center justify-end gap-2">
               <button
@@ -325,6 +358,58 @@ export const Header: React.FC<HeaderProps> = ({
                 className="px-4 py-2 text-xs font-semibold text-white bg-red-600 hover:bg-red-500 rounded-xl transition-all shadow-lg shadow-red-600/20"
               >
                 Clear Board
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* User Nickname Change Modal */}
+      {showUserModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-sm w-full shadow-2xl">
+            <div className="flex items-center gap-2 mb-3">
+              <div
+                className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white"
+                style={{ backgroundColor: localUser.color }}
+              >
+                <User className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-white">Your Display Profile</h3>
+                <p className="text-xs text-slate-400">Shown to other collaborators in real-time</p>
+              </div>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-xs font-medium text-slate-400 mb-1.5">Collaborator Nickname</label>
+              <input
+                type="text"
+                value={tempUserName}
+                onChange={(e) => setTempUserName(e.target.value)}
+                placeholder="Enter your name"
+                className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white outline-none focus:border-indigo-500 transition-colors"
+                maxLength={30}
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2">
+              <button
+                onClick={() => setShowUserModal(false)}
+                className="px-4 py-2 text-xs font-medium text-slate-300 hover:text-white bg-slate-800 rounded-xl transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  if (tempUserName.trim()) {
+                    onUpdateUserName(tempUserName.trim());
+                  }
+                  setShowUserModal(false);
+                }}
+                className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-xl transition-all shadow-lg shadow-indigo-600/20"
+              >
+                Save
               </button>
             </div>
           </div>

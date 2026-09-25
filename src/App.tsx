@@ -12,13 +12,16 @@ import { ToolType, ToolProperties, GridType, CanvasElement } from './types/white
  * CollabBoard Root Application Component
  * 
  * Manages active canvas tools, contextual property bar options,
- * selection states, clipboard, and binds UI interactions to the Yjs CRDT store.
+ * selection states, clipboard, peer awareness, and binds UI interactions to the Yjs CRDT store.
  */
 export function App() {
   const {
     boardId,
     elements,
     isLoaded,
+    isConnected,
+    collaborators,
+    localUser,
     canUndo,
     canRedo,
     createNewBoard,
@@ -29,6 +32,8 @@ export function App() {
     clearAll,
     undo,
     redo,
+    updateCursor,
+    updateUserName,
     getNextZIndex,
   } = useWhiteboard();
 
@@ -60,7 +65,7 @@ export function App() {
           y: window.innerHeight / 2 - 140,
           width: 220,
           height: 180,
-          text: '✨ Welcome to CollabBoard!\n\n• Right-click for Quick Menu\n• Space+Drag to Pan\n• Scroll to Zoom\n• Double-click to edit\n• Drag images here',
+          text: '✨ Live Collaborative Board!\n\n• Share URL to collaborate\n• See live peer cursors\n• Space+Drag to Pan\n• Right-click for Quick Menu',
           color: 'yellow',
           fontSize: 17,
           zIndex: 1,
@@ -359,6 +364,10 @@ export function App() {
       <Header
         boardId={boardId}
         isLoaded={isLoaded}
+        isConnected={isConnected}
+        collaborators={collaborators}
+        localUser={localUser}
+        onUpdateUserName={updateUserName}
         canUndo={canUndo}
         canRedo={canRedo}
         gridType={gridType}
@@ -405,6 +414,8 @@ export function App() {
         onCopyElements={handleCopy}
         onCutElements={handleCut}
         onPasteElements={handlePaste}
+        collaborators={collaborators}
+        onUpdateCursor={updateCursor}
       />
 
       {/* Main Toolbar */}

@@ -1,11 +1,13 @@
 import { useEffect, useState, useCallback } from 'react';
 import { whiteboardService } from '../services/yjsDoc';
-import { CanvasElement } from '../types/whiteboard';
+import { CanvasElement, Collaborator } from '../types/whiteboard';
 
 export function useWhiteboard() {
   const [boardId, setBoardId] = useState<string>(() => whiteboardService.getOrCreateBoardId());
   const [elements, setElements] = useState<CanvasElement[]>([]);
   const [isLoaded, setIsLoaded] = useState<boolean>(false);
+  const [isConnected, setIsConnected] = useState<boolean>(false);
+  const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
   const [canUndo, setCanUndo] = useState<boolean>(false);
   const [canRedo, setCanRedo] = useState<boolean>(false);
 
@@ -14,6 +16,14 @@ export function useWhiteboard() {
 
     const unsubscribeLoad = whiteboardService.subscribeLoading((loaded) => {
       setIsLoaded(loaded);
+    });
+
+    const unsubscribeConnection = whiteboardService.subscribeConnection((connected) => {
+      setIsConnected(connected);
+    });
+
+    const unsubscribeCollaborators = whiteboardService.subscribeCollaborators((collabs) => {
+      setCollaborators(collabs);
     });
 
     const unsubscribeElements = whiteboardService.subscribe((updatedElements) => {
@@ -31,6 +41,8 @@ export function useWhiteboard() {
 
     return () => {
       unsubscribeLoad();
+      unsubscribeConnection();
+      unsubscribeCollaborators();
       unsubscribeElements();
       window.removeEventListener('popstate', handlePopState);
     };
@@ -91,10 +103,21 @@ export function useWhiteboard() {
     return res;
   }, []);
 
+  const updateCursor = useCallback((pos: { x: number; y: number } | null) => {
+    whiteboardService.updateCursor(pos);
+  }, []);
+
+  const updateUserName = useCallback((name: string) => {
+    whiteboardService.updateUserName(name);
+  }, []);
+
   return {
     boardId,
     elements,
     isLoaded,
+    isConnected,
+    collaborators,
+    localUser: whiteboardService.getLocalUser(),
     canUndo,
     canRedo,
     createNewBoard,
@@ -106,6 +129,8 @@ export function useWhiteboard() {
     clearAll,
     undo,
     redo,
+    updateCursor,
+    updateUserName,
     getNextZIndex: () => whiteboardService.getNextZIndex(),
   };
 }

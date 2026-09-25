@@ -1,19 +1,62 @@
 import * as Y from 'yjs';
 import { IndexeddbPersistence } from 'y-indexeddb';
-import { CanvasElement } from '../types/whiteboard';
+import { WebrtcProvider } from 'y-webrtc';
+import { CanvasElement, Collaborator } from '../types/whiteboard';
+
+const USER_COLORS = [
+  '#6366f1', // Indigo
+  '#ec4899', // Pink
+  '#10b981', // Emerald
+  '#f59e0b', // Amber
+  '#06b6d4', // Cyan
+  '#8b5cf6', // Purple
+  '#f97316', // Orange
+  '#14b8a6', // Teal
+];
+
+const USER_NAMES = [
+  'Creative Fox',
+  'Design Panda',
+  'Product Wizard',
+  'Marketing Pro',
+  'Studio Artist',
+  'Brainstormer',
+  'Visionary Owl',
+  'Collaborator',
+];
 
 /**
- * Manages the Yjs Document, IndexedDB persistence, and multiplayer readiness.
+ * Manages the Yjs Document, IndexedDB persistence, WebRTC real-time sync, and peer awareness.
  */
 class WhiteboardService {
   private doc: Y.Doc | null = null;
   private indexeddbProvider: IndexeddbPersistence | null = null;
+  private webrtcProvider: WebrtcProvider | null = null;
   private elementsMap: Y.Map<CanvasElement> | null = null;
   private undoManager: Y.UndoManager | null = null;
   private currentBoardId: string = '';
   private isLoaded: boolean = false;
+  private isConnected: boolean = false;
+  private localUser: { name: string; color: string };
+
   private loadListeners: Set<(isLoaded: boolean) => void> = new Set();
   private changeListeners: Set<(elements: CanvasElement[]) => void> = new Set();
+  private collaboratorListeners: Set<(collaborators: Collaborator[]) => void> = new Set();
+  private connectionListeners: Set<(isConnected: boolean) => void> = new Set();
+
+  constructor() {
+    // Generate or retrieve persistent user identity for this browser
+    const storedName = localStorage.getItem('collab_user_name');
+    const storedColor = localStorage.getItem('collab_user_color');
+
+    const name = storedName || USER_NAMES[Math.floor(Math.random() * USER_NAMES.length)];
+    const color = storedColor || USER_COLORS[Math.floor(Math.random() * USER_COLORS.length)];
+
+    localStorage.setItem('collab_user_name', name);
+    localStorage.setItem('collab_user_color', color);
+
+    this.localUser = { name, color };
+  }
 
   /**
    * Extract board UUID from current URL or generate a new one.
@@ -40,7 +83,7 @@ class WhiteboardService {
   }
 
   /**
-   * Initialize or switch to a board document with IndexedDB persistence.
+   * Initialize or switch to a board document with IndexedDB persistence & WebRTC real-time sync.
    */
   public initBoard(boardId: string): void {
     if (this.currentBoardId === boardId && this.doc) {
@@ -52,7 +95,9 @@ class WhiteboardService {
 
     this.currentBoardId = boardId;
     this.isLoaded = false;
+    this.isConnected = false;
     this.notifyLoadListeners(false);
+    this.notifyConnectionListeners(false);
 
     // 1. Create Yjs Document
     this.doc = new Y.Doc();
@@ -71,34 +116,102 @@ class WhiteboardService {
       this.notifyChangeListeners();
     });
 
-    // 4. Initialize UndoManager scoped to elementsMap
+    // 4. Connect Real-time WebRTC Peer-to-Peer Provider for Live Collaboration
+    const roomName = `collab-board-room-${boardId}`;
+    this.webrtcProvider = new WebrtcProvider(roomName, this.doc, {
+      signaling: [
+        'wss://signaling.yjs.dev',
+        'wss://y-webrtc-signaling-eu.herokuapp.com',
+        'wss://y-webrtc-signaling-us.herokuapp.com',
+      ],
+    });
+
+    // Setup User Presence & Awareness
+    this.webrtcProvider.awareness.setLocalStateField('user', {
+      name: this.localUser.name,
+      color: this.localUser.color,
+    });
+
+    this.webrtcProvider.on('status', ({ connected }: { connected: boolean }) => {
+      this.isConnected = connected;
+      this.notifyConnectionListeners(connected);
+    });
+
+    // Listen to Peer Awareness updates (collaborators & live cursors)
+    this.webrtcProvider.awareness.on('change', () => {
+      this.notifyCollaboratorListeners();
+    });
+
+    // 5. Initialize UndoManager scoped to elementsMap
     this.undoManager = new Y.UndoManager(this.elementsMap, {
       trackedOrigins: new Set([null, undefined, 'local']),
     });
 
-    // 5. Subscribe to CRDT state changes
+    // 6. Subscribe to CRDT state changes
     this.elementsMap.observe(() => {
       this.notifyChangeListeners();
     });
+  }
 
-    /*
-     * Multiplayer readiness:
-     * When ready to enable real-time collaboration across networks,
-     * simply attach a provider here, e.g.:
-     *
-     * import { WebsocketProvider } from 'y-websocket';
-     * const wsProvider = new WebsocketProvider('wss://your-yjs-server.com', boardId, this.doc);
-     *
-     * or:
-     * import { WebrtcProvider } from 'y-webrtc';
-     * const rtcProvider = new WebrtcProvider(`collab-board-${boardId}`, this.doc);
-     */
+  /**
+   * Update local cursor position for awareness broadcast to peers
+   */
+  public updateCursor(pos: { x: number; y: number } | null): void {
+    if (!this.webrtcProvider) return;
+    this.webrtcProvider.awareness.setLocalStateField('cursor', pos);
+  }
+
+  /**
+   * Update local user name
+   */
+  public updateUserName(name: string): void {
+    this.localUser.name = name;
+    localStorage.setItem('collab_user_name', name);
+    if (this.webrtcProvider) {
+      this.webrtcProvider.awareness.setLocalStateField('user', {
+        name: this.localUser.name,
+        color: this.localUser.color,
+      });
+    }
+  }
+
+  public getLocalUser(): { name: string; color: string } {
+    return this.localUser;
+  }
+
+  /**
+   * Get active remote collaborators
+   */
+  public getCollaborators(): Collaborator[] {
+    if (!this.webrtcProvider) return [];
+
+    const states = this.webrtcProvider.awareness.getStates();
+    const collaborators: Collaborator[] = [];
+    const localClientId = this.doc?.clientID;
+
+    states.forEach((state: any, clientId: number) => {
+      // Exclude self from remote collaborators list
+      if (clientId !== localClientId && state.user) {
+        collaborators.push({
+          clientId,
+          name: state.user.name || 'Collaborator',
+          color: state.user.color || '#6366f1',
+          cursor: state.cursor || undefined,
+        });
+      }
+    });
+
+    return collaborators;
   }
 
   /**
    * Clean up document and providers when switching boards or unmounting.
    */
   public cleanup(): void {
+    if (this.webrtcProvider) {
+      this.webrtcProvider.destroy();
+      this.webrtcProvider = null;
+    }
     if (this.indexeddbProvider) {
       this.indexeddbProvider.destroy();
       this.indexeddbProvider = null;
@@ -113,6 +226,7 @@ class WhiteboardService {
     }
     this.elementsMap = null;
     this.isLoaded = false;
+    this.isConnected = false;
   }
 
   /**
@@ -238,7 +352,6 @@ class WhiteboardService {
    */
   public subscribe(listener: (elements: CanvasElement[]) => void): () => void {
     this.changeListeners.add(listener);
-    // Send initial state immediately
     listener(this.getElements());
     return () => {
       this.changeListeners.delete(listener);
@@ -256,6 +369,28 @@ class WhiteboardService {
     };
   }
 
+  /**
+   * Subscribe to WebRTC connection state.
+   */
+  public subscribeConnection(listener: (isConnected: boolean) => void): () => void {
+    this.connectionListeners.add(listener);
+    listener(this.isConnected);
+    return () => {
+      this.connectionListeners.delete(listener);
+    };
+  }
+
+  /**
+   * Subscribe to collaborator awareness list.
+   */
+  public subscribeCollaborators(listener: (collaborators: Collaborator[]) => void): () => void {
+    this.collaboratorListeners.add(listener);
+    listener(this.getCollaborators());
+    return () => {
+      this.collaboratorListeners.delete(listener);
+    };
+  }
+
   private notifyChangeListeners(): void {
     const elements = this.getElements();
     this.changeListeners.forEach((listener) => listener(elements));
@@ -263,6 +398,15 @@ class WhiteboardService {
 
   private notifyLoadListeners(isLoaded: boolean): void {
     this.loadListeners.forEach((listener) => listener(isLoaded));
+  }
+
+  private notifyConnectionListeners(isConnected: boolean): void {
+    this.connectionListeners.forEach((listener) => listener(isConnected));
+  }
+
+  private notifyCollaboratorListeners(): void {
+    const collaborators = this.getCollaborators();
+    this.collaboratorListeners.forEach((listener) => listener(collaborators));
   }
 
   public getBoardId(): string {

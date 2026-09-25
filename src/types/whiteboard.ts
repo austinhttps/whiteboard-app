@@ -114,3 +114,14 @@ export interface ToolProperties {
 }
 
 export type GridType = 'dots' | 'grid' | 'none';
+
+export interface Collaborator {
+  clientId: number;
+  name: string;
+  color: string;
+  cursor?: {
+    x: number;
+    y: number;
+  };
+}
+

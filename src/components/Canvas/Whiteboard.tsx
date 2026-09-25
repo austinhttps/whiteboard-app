@@ -1,9 +1,10 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { Stage, Layer, Transformer, Rect as KonvaRect, Line as KonvaLine, Circle as KonvaCircle, Arrow as KonvaArrow } from 'react-konva';
 import Konva from 'konva';
-import { CanvasElement, ToolType, ToolProperties, GridType, StickyColor } from '../../types/whiteboard';
+import { CanvasElement, ToolType, ToolProperties, GridType, StickyColor, Collaborator } from '../../types/whiteboard';
 import { ElementRenderer } from './ElementRenderer';
 import { GridBackground } from './GridBackground';
+import { PeerCursors } from './PeerCursors';
 import { ContextMenu } from '../ContextMenu/ContextMenu';
 import { exportStageToPNG } from '../../utils/exportUtils';
 
@@ -26,6 +27,8 @@ interface WhiteboardProps {
   onCopyElements: () => void;
   onCutElements: () => void;
   onPasteElements: (point?: { x: number; y: number }) => void;
+  collaborators: Collaborator[];
+  onUpdateCursor: (pos: { x: number; y: number } | null) => void;
 }
 
 interface InlineEditingState {
@@ -60,6 +63,8 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
   onCopyElements,
   onCutElements,
   onPasteElements,
+  collaborators,
+  onUpdateCursor,
 }) => {
   const [stagePos, setStagePos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [stageScale, setStageScale] = useState<number>(1);
@@ -476,6 +481,11 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
     const stage = stageRef.current;
     if (!stage) return;
 
+    const point = getCanvasPoint(stage);
+
+    // Broadcast cursor position to collaborators
+    onUpdateCursor(point);
+
     if (isPanning) {
       const pointer = stage.getPointerPosition();
       if (pointer) {
@@ -486,8 +496,6 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
       }
       return;
     }
-
-    const point = getCanvasPoint(stage);
 
     // Selection box dragging
     if (selectionBox) {
@@ -945,6 +953,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
       onDragOver={handleDragOver}
       onDrop={handleDrop}
       onContextMenu={handleContextMenu}
+      onMouseLeave={() => onUpdateCursor(null)}
       style={{ cursor: cursorStyle }}
     >
       <Stage
@@ -1058,6 +1067,9 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
               dash={[4 / stageScale, 4 / stageScale]}
             />
           )}
+
+          {/* Real-Time Collaborator Cursors */}
+          <PeerCursors collaborators={collaborators} />
 
           {/* Konva Transformer */}
           <Transformer
